@@ -1,0 +1,41 @@
+import type { Metadata } from 'next';
+import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
+import './globals.css';
+import { SiteHeader } from '@/components/shells/SiteHeader';
+import { SiteFooter } from '@/components/shells/SiteFooter';
+import { MainShell } from '@/components/layout/MainShell';
+import { Providers } from '@/components/providers';
+import { PLATFORM } from '@/lib/brand';
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+});
+
+const display = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  variable: '--font-display',
+});
+
+export const metadata: Metadata = {
+  title: `${PLATFORM.name} — ${PLATFORM.tagline}`,
+  description: PLATFORM.description,
+  icons: {
+    icon: '/logo.svg',
+    apple: '/logo.svg',
+  },
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" className={`${inter.variable} ${display.variable}`} suppressHydrationWarning>
+      <body className="flex min-h-screen flex-col">
+        <Providers>
+          <SiteHeader />
+          <MainShell>{children}</MainShell>
+          <SiteFooter />
+        </Providers>
+      </body>
+    </html>
+  );
+}

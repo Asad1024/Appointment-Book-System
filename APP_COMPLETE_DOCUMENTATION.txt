@@ -1,0 +1,1444 @@
+================================================================================
+  SLOTWISE — APPOINTMENT BOOKING SYSTEM
+  COMPLETE APPLICATION DOCUMENTATION
+================================================================================
+Generated: May 18, 2026
+Workspace: d:\Appointment Booking System
+
+This document describes every page, route, UI pattern, feature, user/admin
+workflow, API surface, data model, and styling convention in the application.
+
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+  1.  Executive Summary
+  2.  Architecture & Monorepo Structure
+  3.  Technology Stack
+  4.  Branding & Product Identity
+  5.  How the Application Works (End-to-End)
+  6.  Complete Route Map (All Pages)
+  7.  Layout System & Chrome Visibility
+  8.  Page-by-Page Reference
+  9.  UI Component Library
+  10. Styling & Design System
+  11. Animations & Motion
+  12. Client-Side API Layer
+  13. Authentication, Sessions & RBAC
+  14. Customer User Operations
+  15. Staff / Admin Operations
+  16. Booking Wizard (Deep Dive)
+  17. Appointment Management (Magic Links)
+  18. Product Integration & Embed Mode
+  19. Backend API Reference
+  20. Database Schema (Prisma / MySQL)
+  21. Scheduling Engine
+  22. Notifications & Email
+  23. Reports & Analytics
+  24. Team Invites & Roles
+  25. Security Features
+  26. Error & Edge Pages
+  27. Environment Variables
+  28. Local Development & URLs
+  29. Seed Data & Demo Credentials
+  30. File Structure Reference
+
+
+================================================================================
+1. EXECUTIVE SUMMARY
+================================================================================
+
+Slotwise is a production-grade appointment booking platform for companies that
+need public scheduling, staff administration, product integrations, and customer
+self-service.
+
+Brand name:     Slotwise
+Tagline:        Appointment scheduling platform
+Description:    Book demos, manage team availability, and integrate scheduling
+                across your products.
+
+The system is split into:
+  - apps/web     → Next.js 14 (App Router) frontend on port 3000
+  - apps/api     → NestJS REST API on port 3001
+  - packages/scheduling-core → Slot generation (Luxon)
+  - packages/shared-types    → Shared enums and TypeScript types
+
+Core capabilities:
+  - 5-step public booking wizard (service → provider → slot → details → confirm)
+  - Guest booking OR registered customer accounts
+  - Magic-link appointment management (cancel / reschedule / .ics download)
+  - Staff admin portal with dashboard, catalog, availability, team, settings, reports
+  - Product integration via URL params, iframe embed, webhooks, return URLs
+  - Email confirmations and automated reminders (24h and 1h)
+  - Overlap protection with MySQL row locking
+  - CSRF protection, JWT httpOnly cookies, role-based access control
+  - Waitlist when slots are taken
+  - Swagger API docs at /api/docs
+
+
+================================================================================
+2. ARCHITECTURE & MONOREPO STRUCTURE
+================================================================================
+
+appointment-booking-system/
+├── apps/
+│   ├── api/                    NestJS + Prisma + MySQL
+│   │   ├── prisma/schema.prisma
+│   │   ├── prisma/seed.ts
+│   │   └── src/
+│   │       ├── auth/           Login, register, JWT, CSRF
+│   │       ├── appointments/   Book, manage, admin CRUD
+│   │       ├── availability/   Slot queries
+│   │       ├── catalog/        Services, providers, schedules
+│   │       ├── team/           Invites and members
+│   │       ├── settings/       Org branding and location policies
+│   │       ├── reports/        Analytics summaries
+│   │       ├── integration/    Public context for booking widget
+│   │       ├── notifications/  Email queue and templates
+│   │       └── health/         Health checks
+│   └── web/                    Next.js frontend
+│       └── src/
+│           ├── app/            App Router pages
+│           ├── components/     UI, booking, admin, shells
+│           └── lib/            API client, auth helpers, brand
+├── packages/
+│   ├── scheduling-core/        Pure slot generation logic
+│   └── shared-types/           UserRole, AppointmentStatus, etc.
+├── docs/                       ADRs, integration guide, runbooks
+└── infrastructure/             Dockerfiles
+
+Request flow:
+  Browser (localhost:3000)
+    → fetch() with credentials: 'include' to API (localhost:3001)
+    → JWT stored in httpOnly cookies (access + refresh)
+    → CSRF token fetched from GET /auth/csrf, sent on mutations
+
+
+================================================================================
+3. TECHNOLOGY STACK
+================================================================================
+
+FRONTEND (apps/web)
+  - Next.js 14.2 (App Router, React Server/Client Components)
+  - React 18.3
+  - TypeScript
+  - Tailwind CSS 3.4 + tailwindcss-animate
+  - Radix UI primitives (Dialog, Select, Tabs, Switch, Tooltip, Avatar, etc.)
+  - Framer Motion (page transitions, hero animations, wizard step transitions)
+  - react-hook-form + zod (form validation)
+  - date-fns + date-fns-tz (timezone formatting)
+  - sonner (toast notifications)
+  - lucide-react (icons)
+  - recharts (admin reports bar chart)
+  - clsx / cn utility for class merging
+
+BACKEND (apps/api)
+  - NestJS
+  - Prisma ORM → MySQL 8
+  - bcrypt (password hashing)
+  - Passport JWT strategy
+  - Bull/Redis queue for notifications (Memurai or Redis locally)
+  - Swagger/OpenAPI at /api/docs
+  - cookie-parser for auth cookies
+
+INFRASTRUCTURE
+  - Optional Docker Compose for MySQL + Redis
+  - pnpm workspaces (packageManager: pnpm@9.0.0)
+  - Node.js >= 20
+
+
+================================================================================
+4. BRANDING & PRODUCT IDENTITY
+================================================================================
+
+Central config: apps/web/src/lib/brand.ts
+
+  PLATFORM.name        = 'Slotwise'
+  PLATFORM.tagline     = 'Appointment scheduling platform'
+  PLATFORM.description = 'Book demos, manage team availability, and integrate
+                          scheduling across your products.'
+
+Default organization primary color: #4f46e5 (indigo brand-600)
+Organization can override via admin Settings → Branding
+
+Logo components:
+  - components/Logo.tsx       Full wordmark
+  - components/LogoMark.tsx   Icon mark
+  - app/icon.svg              Favicon
+
+Metadata (root layout):
+  - Title: "Slotwise — Appointment scheduling platform"
+  - Icons: /logo.svg
+
+
+================================================================================
+5. HOW THE APPLICATION WORKS (END-TO-END)
+================================================================================
+
+PUBLIC BOOKING FLOW
+-------------------
+1. User visits /book (optionally with ?product=, ?source=, ?campaign=, ?returnUrl=)
+2. Frontend calls GET /integration/context?org=demo-company&product=...
+   → Returns branding, location, filtered services
+3. User walks through 5 wizard steps (state persisted in sessionStorage)
+4. For each date, frontend calls GET /availability/slots with location, service,
+   provider, date range
+5. On confirm, POST /appointments/book with idempotency key
+6. API validates slot, locks rows, creates appointment + customer record,
+   sends confirmation email, fires webhook
+7. User sees success screen with link to /manage/[manageToken]
+8. If returnUrl provided, redirects after 2 seconds with ?booked=true&appointmentId=
+
+CUSTOMER ACCOUNT FLOW
+---------------------
+1. User registers at /register → POST /auth/register
+2. Verification email sent → user visits /verify-email or link with token
+3. User signs in at /login → JWT cookies set
+4. Customer redirected to /account (staff redirected to /admin/dashboard)
+5. /account lists paginated appointments from GET /auth/me/appointments
+
+MAGIC LINK MANAGEMENT
+---------------------
+1. Confirmation email contains link to /manage/[token]
+2. No login required — token is the credential
+3. User can view details, download .ics, reschedule (max 3 times), or cancel
+4. Cancellation respects location cancellationCutoffH policy
+
+STAFF ADMIN FLOW
+----------------
+1. Staff signs in at /login (same page as customers)
+2. Role detected → redirect to /admin/dashboard
+3. useStaffSession hook guards all /admin/* routes
+4. Admin manages services, providers, schedules, appointments, team, settings
+5. Org admins see Team and Settings nav items; other staff roles may not
+
+TEAM ONBOARDING
+---------------
+1. Org admin invites colleague at /admin/team
+2. API creates TeamInvite with token → returns acceptUrl
+3. Invitee opens /invite/[token], sets name + password
+4. POST /team/invites/token/:token/accept → user created with assigned role
+
+
+================================================================================
+6. COMPLETE ROUTE MAP (ALL PAGES)
+================================================================================
+
+PUBLIC / MARKETING
+  GET  /                          Homepage (marketing landing)
+  GET  /book                      Full-page booking wizard
+  GET  /embed/book                Embedded booking (iframe-friendly)
+
+AUTHENTICATION (URLs are /login not /(auth)/login — route group is invisible)
+  GET  /login                     Sign in (customers + staff)
+  GET  /register                  Create customer account
+  GET  /forgot-password           Request password reset email
+  GET  /reset-password            Set new password (token in query)
+  GET  /verify-email              Email verification status / resend
+
+CUSTOMER
+  GET  /account                   My appointments (requires login, customer role)
+
+APPOINTMENT MANAGEMENT (no auth — token-based)
+  GET  /manage/[token]            View / cancel / reschedule appointment
+
+TEAM
+  GET  /invite/[token]            Accept staff invite and create account
+
+ADMIN (all require staff JWT session)
+  GET  /admin                     → redirects to /admin/dashboard
+  GET  /admin/login               → redirects to /login (legacy)
+  GET  /admin/dashboard           Week view of appointments + waitlist tab
+  GET  /admin/services            CRUD services + provider assignments
+  GET  /admin/providers           Provider cards grid
+  GET  /admin/providers/[id]/availability   Weekly schedule + blocked times
+  GET  /admin/appointments/[id]   Appointment detail + status actions
+  GET  /admin/reports             Analytics charts and summaries
+  GET  /admin/settings            Branding + location policies (org admin)
+  GET  /admin/team                Invite members, pending invites (org admin)
+
+SYSTEM
+  (implicit) not-found            Custom 404 page
+  (implicit) error                Global error boundary
+
+QUERY PARAMETERS ON /book AND /embed/book
+  org         Organization slug (default: demo-company)
+  product     Filters services by productKey
+  source      Attribution stored on appointment
+  campaign    Marketing campaign id
+  returnUrl   HTTPS URL to redirect after booking
+  embed       Set internally on embed route (source = 'embed')
+
+QUERY PARAMETERS ON /login
+  next        Safe relative redirect after login (e.g. /admin/dashboard)
+
+
+================================================================================
+7. LAYOUT SYSTEM & CHROME VISIBILITY
+================================================================================
+
+ROOT LAYOUT (app/layout.tsx)
+  - Loads Inter + Plus Jakarta Sans fonts
+  - Wraps all pages in: Providers → SiteHeader → MainShell → SiteFooter
+  - Providers adds Sonner toast container (top-right)
+
+SITE HEADER (components/shells/SiteHeader.tsx)
+  HIDDEN on paths starting with:
+    /embed, /admin, /login, /register, /forgot-password, /reset-password,
+    /verify-email, /invite, /account, /manage
+
+  When visible:
+    - Logo linking to /
+    - Desktop: Sign in + Book appointment OR user avatar dropdown
+    - Mobile: hamburger menu with same auth actions
+    - Logged-in staff → "Staff dashboard" link to /admin/dashboard
+    - Logged-in customer → "My account" link to /account
+
+SITE FOOTER (components/shells/SiteFooter.tsx)
+  Same HIDE_PATHS as header.
+  Columns: Product links, Company links, Status indicator.
+  Copyright + Privacy/Terms placeholders.
+
+MAIN SHELL (components/layout/MainShell.tsx)
+  "Bare chrome" pages (no max-width padding):
+    /, /embed/*, auth pages, /account, /manage/*, /invite/*
+  Other pages: centered max-w-6xl container with padding.
+
+ADMIN LAYOUT (app/admin/layout.tsx + components/shells/AdminLayout.tsx)
+  - Replaces public header/footer entirely
+  - useStaffSession: redirects to /login?next=... if not staff
+  - Dark sidebar (desktop, 240px) with nav links
+  - Mobile bottom tab bar (first 5 nav items)
+  - Sticky white top bar in content area
+  - User avatar + logout in sidebar footer
+
+EMBED LAYOUT (app/embed/layout.tsx)
+  - Minimal white container, max-width 420px
+  - No site header/footer
+
+ACCOUNT LAYOUT (app/account/layout.tsx)
+  - Full-height subtle background
+  - AccountHeader rendered inside page (not layout)
+
+AUTH LAYOUT (app/(auth)/layout.tsx)
+  - Pass-through wrapper only
+  - AuthShell component provides centered card UI per page
+
+
+================================================================================
+8. PAGE-BY-PAGE REFERENCE
+================================================================================
+
+--------------------------------------------------------------------------------
+8.1  HOMEPAGE — /
+--------------------------------------------------------------------------------
+File: apps/web/src/app/page.tsx
+Type: Client component with Framer Motion animations
+
+SECTIONS:
+  1. HERO
+     - Badge: platform tagline
+     - Headline: "Book smarter. Grow faster." (gradient on second line)
+     - CTA buttons: "Book a demo" → /book, "Staff login" → /login?next=/admin/dashboard
+     - Trust items: No credit card, Guest booking, Team invites, SOC 2 ready
+     - Right side: animated BookingWizardMockup (fake step 1 UI)
+
+  2. SOCIAL PROOF STATS (animated counters)
+     - 50K+ appointments, 2 min avg booking, 99.9% uptime, 500+ teams
+
+  3. FEATURES GRID (6 cards with icons)
+     - Smart availability, Team-ready, Product integrations
+     - Automated reminders, Enterprise security, Actionable analytics
+
+  4. HOW IT WORKS (3 steps)
+     - Choose service → Select time & expert → Confirm & manage
+
+  5. CTA BAND (gradient brand-600 to violet-700)
+     - "Start booking" and "Staff login" buttons
+
+Uses: PageTransition wrapper, Button, PLATFORM brand config, lucide icons
+
+--------------------------------------------------------------------------------
+8.2  BOOK — /book
+--------------------------------------------------------------------------------
+File: apps/web/src/app/book/page.tsx
+Wrapper: PageShell (wide variant)
+
+  - Page title: "Schedule your session"
+  - Subtitle explaining the flow
+  - Suspense boundary with spinner while searchParams load
+  - Renders <BookingWizard> with URL query params
+
+--------------------------------------------------------------------------------
+8.3  EMBED BOOK — /embed/book
+--------------------------------------------------------------------------------
+File: apps/web/src/app/embed/book/page.tsx
+Layout: embed/layout.tsx (narrow, no chrome)
+
+  - Same BookingWizard as /book but embed=true
+  - Sets appointment source to "embed" on submit
+  - Success screen hides "My appointments" link
+  - Compact padding for iframe embedding
+
+--------------------------------------------------------------------------------
+8.4  LOGIN — /login
+--------------------------------------------------------------------------------
+File: apps/web/src/app/(auth)/login/page.tsx
+Shell: AuthShell (centered card on subtle background)
+
+  - Title: "Welcome back"
+  - Subtitle: explains auto-routing for customer vs staff
+  - Fields: email, password (PasswordField component)
+  - Link: Forgot password → /forgot-password
+  - Submit: POST /auth/login → resolvePostLoginPath(role, next)
+  - Links: Create account → /register, Book without signing in → /book
+
+--------------------------------------------------------------------------------
+8.5  REGISTER — /register
+--------------------------------------------------------------------------------
+File: apps/web/src/app/(auth)/register/page.tsx
+
+  - Fields: name, email, password with PasswordStrength meter
+  - POST /auth/register with orgSlug: 'demo-company'
+  - Redirects to /verify-email?pending=1&email=...
+
+--------------------------------------------------------------------------------
+8.6  FORGOT PASSWORD — /forgot-password
+--------------------------------------------------------------------------------
+File: apps/web/src/app/(auth)/forgot-password/page.tsx
+
+  - Email field → POST /auth/forgot-password
+  - Success state with AnimatedCheckmark
+  - Resend cooldown (60 seconds)
+
+--------------------------------------------------------------------------------
+8.7  RESET PASSWORD — /reset-password
+--------------------------------------------------------------------------------
+File: apps/web/src/app/(auth)/reset-password/page.tsx
+
+  - Token from URL query string
+  - New password + confirm → POST /auth/reset-password
+
+--------------------------------------------------------------------------------
+8.8  VERIFY EMAIL — /verify-email
+--------------------------------------------------------------------------------
+File: apps/web/src/app/(auth)/verify-email/page.tsx
+
+  - Handles ?pending=1 (check your inbox UI)
+  - Handles ?token=... (auto-verify via GET /auth/verify-email)
+  - Resend button → POST /auth/resend-verification
+
+--------------------------------------------------------------------------------
+8.9  ACCOUNT — /account
+--------------------------------------------------------------------------------
+File: apps/web/src/app/account/page.tsx
+Layout: account/layout.tsx
+
+  - Fetches GET /auth/me — staff roles redirected to /admin/dashboard
+  - AccountHeader: user name, email, profile edit modal
+  - Lists appointments paginated (6 per page) from GET /auth/me/appointments
+  - Each card: service, provider, location, datetime, StatusBadge, manage link
+  - Email verification warning if not verified
+  - Empty state with "Book now" CTA
+
+--------------------------------------------------------------------------------
+8.10  MANAGE APPOINTMENT — /manage/[token]
+--------------------------------------------------------------------------------
+File: apps/web/src/app/manage/[token]/page.tsx
+
+  - Public — no login required
+  - Loads GET /appointments/manage/:token
+  - Shows: service, provider, location, datetime, timezone, status badge
+  - Actions (if not cancelled/completed):
+      • Add to calendar (.ics file generated client-side)
+      • Reschedule (inline DateTimePicker, max 3 reschedules)
+      • Cancel (ConfirmDialog)
+  - Reschedule: POST /appointments/manage/:token/reschedule
+  - Cancel: POST /appointments/manage/:token/cancel
+
+--------------------------------------------------------------------------------
+8.11  ACCEPT INVITE — /invite/[token]
+--------------------------------------------------------------------------------
+File: apps/web/src/app/invite/[token]/page.tsx
+
+  - Preview: GET /team/invites/token/:token
+  - Shows organization name, role badge, email
+  - Form: name, password → POST accept
+  - Redirects to /admin/dashboard on success
+
+--------------------------------------------------------------------------------
+8.12  ADMIN DASHBOARD — /admin/dashboard
+--------------------------------------------------------------------------------
+File: apps/web/src/app/admin/dashboard/page.tsx
+
+  STATS CARDS (animated counters):
+    - This week total, Confirmed count, Pending count
+
+  TABS:
+    A) Appointments
+       - Week navigator (prev/next, date picker, "Today" button)
+       - Status filter dropdown (all, pending, confirmed, checked_in, etc.)
+       - Search box (customer name, email, service, provider)
+       - Desktop: sortable table with link to detail page
+       - Mobile: card list
+       - Data: GET /appointments/admin?dateFrom&dateTo&status&limit
+
+    B) Waitlist
+       - Table/cards of waitlist entries
+       - Data: GET /appointments/waitlist
+
+--------------------------------------------------------------------------------
+8.13  ADMIN SERVICES — /admin/services
+--------------------------------------------------------------------------------
+File: apps/web/src/app/admin/services/page.tsx
+
+  - Table/cards of all services (GET /catalog/admin/services)
+  - "New service" opens SlideOver panel
+  - Create: POST /catalog/services (uses first org location)
+  - Edit: PATCH /catalog/services/:id
+  - Deactivate: DELETE /catalog/services/:id (soft deactivate)
+  - Edit mode: toggle provider assignments via POST/DELETE /catalog/service-providers
+  - Fields: name, duration, productKey, buffer before/after, description
+
+--------------------------------------------------------------------------------
+8.14  ADMIN PROVIDERS — /admin/providers
+--------------------------------------------------------------------------------
+File: apps/web/src/app/admin/providers/page.tsx
+
+  - Card grid per provider with InitialsAvatar
+  - Shows: name, email, location, active status
+  - Actions: "Schedule" → availability page, "Deactivate"
+  - Create via SlideOver: POST /catalog/providers
+
+--------------------------------------------------------------------------------
+8.15  PROVIDER AVAILABILITY — /admin/providers/[id]/availability
+--------------------------------------------------------------------------------
+File: apps/web/src/app/admin/providers/[id]/availability/page.tsx
+
+  WEEKLY SCHEDULE:
+    - 7 rows (Sun–Sat) with enable toggle + start/end time inputs
+    - Default: Mon–Fri 09:00–17:00 enabled
+    - Save: PUT /catalog/providers/:id/availability
+
+  BLOCKED TIMES:
+    - Add form: start UTC, end UTC, optional reason
+    - POST /catalog/providers/:id/blocked-times
+    - List with delete → DELETE .../blocked-times/:btId
+
+--------------------------------------------------------------------------------
+8.16  ADMIN APPOINTMENT DETAIL — /admin/appointments/[id]
+--------------------------------------------------------------------------------
+File: apps/web/src/app/admin/appointments/[id]/page.tsx
+
+  - GET /appointments/admin/:id
+  - Details: datetime (location TZ + UTC), provider, location, source, product, campaign
+  - Customer card: name, email, phone, service
+  - Status actions: Check in, Mark complete, No-show, Reschedule, Cancel
+  - Activity timeline from appointment.events audit log
+  - Reschedule SlideOver with slot picker
+
+--------------------------------------------------------------------------------
+8.17  ADMIN REPORTS — /admin/reports
+--------------------------------------------------------------------------------
+File: apps/web/src/app/admin/reports/page.tsx
+
+  - Date range filters (default last 30 days) + status filter
+  - Summary cards: total, confirmed, cancelled, no-shows
+  - Cancellation rate percentage
+  - Recharts BarChart: appointments by provider
+  - Provider breakdown table
+  - APIs: GET /reports/summary, GET /reports/by-provider
+
+--------------------------------------------------------------------------------
+8.18  ADMIN SETTINGS — /admin/settings
+--------------------------------------------------------------------------------
+File: apps/web/src/app/admin/settings/page.tsx
+Access: org_admin and super_admin only (nav hidden for others)
+
+  BRANDING SECTION:
+    - Logo URL, Primary color (with live color swatch)
+    - PATCH /settings/organization
+
+  LOCATION POLICIES (first location):
+    - Timezone, Address
+    - Cancellation cutoff (hours before appointment)
+    - Lead time (minutes — how far in advance bookings must be)
+    - Booking window (days — how far ahead customers can book)
+    - PATCH /settings/locations/:locationId
+
+--------------------------------------------------------------------------------
+8.19  ADMIN TEAM — /admin/team
+--------------------------------------------------------------------------------
+File: apps/web/src/app/admin/team/page.tsx
+Access: org_admin and super_admin only
+
+  INVITE FORM:
+    - Email, Role (org_admin, location_manager, provider)
+    - If provider role: link to provider profile
+    - POST /team/invites → displays copyable acceptUrl
+
+  PENDING INVITES TABLE:
+    - Email, role, expiry, revoke action
+
+  TEAM MEMBERS TABLE:
+    - Name (avatar), email, role
+    - GET /team/members
+
+--------------------------------------------------------------------------------
+8.20  NOT FOUND — 404
+--------------------------------------------------------------------------------
+File: apps/web/src/app/not-found.tsx
+  - FileQuestion icon, links to / and /book
+
+--------------------------------------------------------------------------------
+8.21  GLOBAL ERROR
+--------------------------------------------------------------------------------
+File: apps/web/src/app/error.tsx
+  - AlertTriangle icon, Try again button (reset()), Go home link
+
+
+================================================================================
+9. UI COMPONENT LIBRARY
+================================================================================
+
+PRIMITIVE UI (components/ui/)
+  button.tsx      Variants: default, outline, secondary, ghost, danger; sizes sm/lg;
+                  loading spinner state
+  input.tsx       Standard text input matching .input-field styles
+  label.tsx       Form labels
+  card.tsx        Card + CardBody containers
+  alert.tsx       Info/error alert banners
+  badge.tsx       Status and role badges
+  skeleton.tsx    Loading placeholders
+  switch.tsx      Toggle (Radix)
+  select.tsx      Dropdown select (Radix)
+  tabs.tsx        Tab list + content (Radix)
+  dialog.tsx      Modal dialogs (Radix)
+  tooltip.tsx     Hover tooltips (Radix)
+  avatar.tsx      Avatar component (Radix)
+  separator.tsx   Horizontal rules
+
+BOOKING (components/booking/)
+  BookingWizardLayout.tsx  Two-column: wizard + sticky summary panel
+  BookingSummaryPanel.tsx  Live summary of selections with accent color
+  DateTimePicker.tsx       Date input + slot grid + timezone selector
+  StepIndicator.tsx        Pill badges for each wizard step
+
+ADMIN (components/admin/)
+  AdminNav.tsx         LEGACY — horizontal nav (NOT currently used in layout)
+  SlideOver.tsx        Right-side drawer for forms
+  EmptyState.tsx       Icon + title + description + optional action
+  AnimatedCounter.tsx  Count-up animation for stat numbers
+
+SHARED (components/shared/)
+  PasswordField.tsx     Password input with show/hide toggle
+  PasswordStrength.tsx  Visual strength meter
+  StatusBadge.tsx       Maps appointment status to colored pill
+  ConfirmDialog.tsx     Destructive action confirmation modal
+  AnimatedCheckmark.tsx SVG check animation for success states
+  InitialsAvatar.tsx  Colored circle with user initials
+  DateTimePicker.tsx    Simpler picker used on manage page
+
+SHELLS (components/shells/)
+  SiteHeader.tsx, SiteFooter.tsx, AdminLayout.tsx, AuthShell.tsx
+
+LAYOUT (components/layout/)
+  MainShell.tsx, PageShell.tsx, AuthShell.tsx (duplicate path)
+
+MOTION (components/motion/)
+  PageTransition.tsx  Framer Motion fade/slide on route content
+
+OTHER
+  Logo.tsx, LogoMark.tsx, providers.tsx (Sonner Toaster)
+
+
+================================================================================
+10. STYLING & DESIGN SYSTEM
+================================================================================
+
+CONFIG: apps/web/tailwind.config.ts
+GLOBAL CSS: apps/web/src/app/globals.css
+
+TYPOGRAPHY
+  - Body font:    Inter (CSS var --font-inter)
+  - Display font: Plus Jakarta Sans (CSS var --font-display)
+  - Headings use font-display class
+
+COLOR PALETTE — BRAND (indigo)
+  brand-50:  #eef2ff    brand-500: #6366f1
+  brand-100: #e0e7ff    brand-600: #4f46e5  ← primary actions
+  brand-200: #c7d2fe    brand-700: #4338ca
+  brand-300: #a5b4fc    brand-800: #3730a3
+  brand-400: #818cf8    brand-900: #312e81
+
+SURFACE COLORS (CSS variables in :root)
+  --surface-base:   #ffffff
+  --surface-subtle: #f8fafc   ← default page background
+  --surface-muted:  #f1f5f9
+
+TEXT COLORS
+  --text-primary:   #0f172a  (slate-900)
+  --text-secondary: #475569  (slate-600)
+  --text-muted:     #94a3b8  (slate-400)
+
+SHADCN-STYLE SEMANTIC TOKENS (HSL CSS variables)
+  --primary, --secondary, --destructive, --muted, --accent, --border, --ring
+  Used by Radix UI components
+
+BORDER RADIUS
+  Default: 0.5rem (--radius)
+  Cards: rounded-xl (12px)
+  Large marketing cards: rounded-2xl
+
+BOX SHADOWS
+  shadow-card:   Subtle card elevation
+  shadow-lifted: Hover state on feature cards
+  shadow-float:  Modals, dropdowns, manage page card
+
+COMPONENT CLASSES (globals.css @layer components)
+  .card-base       White card with border and shadow-card
+  .input-field     44px height input with brand focus ring
+  .section-label   Uppercase muted small labels
+  .status-*        Appointment status pills:
+                   confirmed (green), pending (amber), cancelled (red),
+                   checked_in (blue), completed (slate), no_show (rose)
+
+ADMIN SIDEBAR
+  Background: bg-slate-900 (dark)
+  Active link:  bg-brand-500/20 text-brand-300
+  Inactive:     text-slate-300 hover:bg-white/5
+
+RESPONSIVE BREAKPOINTS (Tailwind defaults)
+  sm: 640px   md: 768px   lg: 1024px
+  - Admin tables → card lists below md
+  - Homepage hero stacks on mobile
+  - Admin sidebar → bottom tab bar below lg
+
+DARK MODE
+  darkMode: ['class'] configured but not actively used in pages
+
+
+================================================================================
+11. ANIMATIONS & MOTION
+================================================================================
+
+FRAMER MOTION usage:
+  - PageTransition: opacity + y-shift on page enter
+  - Homepage hero: floating wizard mockup, gradient blobs, stat counters on scroll
+  - Feature cards: hover lift (-4px y) + icon spring scale
+  - Booking wizard steps: AnimatePresence slide (opacity + x) between steps
+  - Progress bar: CSS width transition on step change
+  - AnimatedCheckmark: SVG path animation on booking success
+  - AnimatedCounter: number count-up on admin dashboard/reports
+
+TOASTS (Sonner):
+  - Position: top-right
+  - richColors, closeButton enabled
+  - Used for success/error on all mutations
+
+
+================================================================================
+12. CLIENT-SIDE API LAYER
+================================================================================
+
+File: apps/web/src/lib/api.ts
+
+BASE URL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+
+FUNCTIONS:
+  getApiUrl()         Returns API base
+  ensureCsrf()        Fetches GET /auth/csrf, caches token
+  api<T>(path)        Generic fetch with credentials + CSRF on mutations
+  apiAuth<T>(path)    Alias for api (session via cookies)
+  logout()            POST /auth/logout, clears CSRF cache
+  fetchMe()           GET /auth/me → AuthUser
+
+CSRF:
+  - Required on POST, PATCH, PUT, DELETE
+  - Header: x-csrf-token
+  - Cookie-based validation on API
+
+ERROR HANDLING:
+  - 401 → "Session expired. Please sign in again."
+  - 403 → Access denied with API message
+  - Other → Parses NestJS { message: string | string[] }
+
+AUTH USER TYPE:
+  { id, email, name, role, emailVerified }
+
+HOOKS:
+  useAuthUser.ts    → /auth/me for public header (all roles)
+  useStaffSession.ts → staff-only guard for /admin layout
+
+
+================================================================================
+13. AUTHENTICATION, SESSIONS & RBAC
+================================================================================
+
+MECHANISM
+  - JWT access token + refresh token in httpOnly cookies
+  - CSRF double-submit cookie pattern
+  - Single login page for customers and staff
+  - Post-login routing via lib/auth-redirect.ts
+
+ROLES (packages/shared-types)
+  super_admin       Full system access
+  org_admin         Organization admin (settings, team)
+  location_manager  Schedules and reports
+  provider          Own appointments only
+  customer          Public account holder
+
+STAFF_ROLES = [super_admin, org_admin, location_manager, provider]
+
+POST-LOGIN ROUTING
+  Staff  → /admin/dashboard (or safe ?next= path under /admin)
+  Customer → /account (or safe ?next= path not under /admin)
+
+ADMIN ROUTE GUARD
+  app/admin/layout.tsx uses useStaffSession:
+    - Calls fetchMe()
+    - If role not in STAFF_ROLES → redirect /login?next=<current path>
+    - While loading → full-screen skeleton
+
+ORG ADMIN CHECK
+  isOrgAdmin = role === 'org_admin' || role === 'super_admin'
+  Hides /admin/settings and /admin/team from sidebar for other roles
+
+API RolesGuard
+  Decorator @Roles(...) on controller methods
+  Compares req.user.role against required roles
+
+
+================================================================================
+14. CUSTOMER USER OPERATIONS
+================================================================================
+
+GUEST BOOKING (no account)
+  1. Go to /book
+  2. Complete wizard with name + email
+  3. Receive confirmation email with /manage/[token] link
+  4. Optionally create account later with same email
+
+REGISTERED CUSTOMER
+  1. Register at /register
+  2. Verify email (required for some flows)
+  3. Sign in at /login → lands on /account
+  4. Book at /book — name/email pre-filled from session
+  5. View all appointments at /account (paginated)
+  6. Click "Manage appointment" → /manage/[token]
+
+RESCHEDULE (customer)
+  - Open manage link → Reschedule → pick new date/slot → Confirm
+  - Maximum 3 reschedules per appointment (rescheduleCount field)
+  - Blocked if within cancellation cutoff window
+
+CANCEL (customer)
+  - Open manage link → Cancel appointment → Confirm dialog
+  - Blocked if status is cancelled/completed
+  - Blocked if within cancellationCutoffH hours of start time
+
+ADD TO CALENDAR
+  - Downloads .ics file client-side (no API call)
+
+WAITLIST
+  - If slot taken during booking, "Join waitlist" button appears
+  - POST /appointments/waitlist with email, name, preferred date
+
+
+================================================================================
+15. STAFF / ADMIN OPERATIONS
+================================================================================
+
+SIGN IN
+  - /login (same as customer) with staff credentials
+  - Redirected to /admin/dashboard
+
+DASHBOARD
+  - Review week's appointments
+  - Filter by status, search customers
+  - Click appointment row → detail page
+  - Review waitlist tab
+
+MANAGE SERVICES
+  - Create/edit/deactivate services
+  - Set duration, buffers, product key, description
+  - Assign which providers can perform each service
+
+MANAGE PROVIDERS
+  - Add providers with name and email
+  - Deactivate providers
+  - Configure weekly availability hours per day of week
+  - Add/remove blocked time ranges (PTO, holidays)
+
+APPOINTMENT OPERATIONS (detail page)
+  - Check in customer (status → checked_in)
+  - Mark complete (status → completed)
+  - Mark no-show (status → no_show)
+  - Reschedule to new slot (uses manage token API internally)
+  - Cancel appointment (status → cancelled)
+  - View full audit event timeline
+
+REPORTS
+  - Select date range and optional status filter
+  - View totals, cancellation rate
+  - Bar chart and table by provider
+
+SETTINGS (org admin only)
+  - Update logo URL and brand color for booking widget
+  - Configure location timezone, address, booking policies
+
+TEAM (org admin only)
+  - Invite new staff by email with role
+  - Copy invite link to share manually
+  - Revoke pending invites
+  - View current team members
+
+SIGN OUT
+  - Sidebar "Log out" → POST /auth/logout → /login
+
+
+================================================================================
+16. BOOKING WIZARD (DEEP DIVE)
+================================================================================
+
+Component: components/BookingWizard.tsx
+
+STEPS (0-indexed):
+  Step 0: Service     — list services from integration context
+  Step 1: Provider   — specific provider OR "Any available provider"
+  Step 2: Date/time  — DateTimePicker with slot grid
+  Step 3: Details    — name, email, phone (react-hook-form + zod)
+  Step 4: Confirm    — review summary → submit
+
+STATE PERSISTENCE:
+  sessionStorage key: 'slotwise_booking_wizard'
+  Saves: step, serviceId, providerId, selectedDate, startUtc, timezone, locationId
+  Cleared on successful booking
+
+INTEGRATION CONTEXT LOAD:
+  GET /integration/context?org=demo-company&product=...
+  Returns: { branding, location, services[], product }
+  If only 1 service → auto-select and jump to step 1
+
+PROVIDER LOAD:
+  GET /catalog/locations/:locationId/providers?serviceId=&product=
+
+SLOT LOAD:
+  GET /availability/slots?locationId&serviceId&providerId&fromDate&toDate
+
+BOOKING SUBMIT:
+  POST /appointments/book
+  Body: locationId, serviceId, providerId, startUtc, customerName, customerEmail,
+        customerPhone?, customerTimezone, idempotencyKey (UUID),
+        product, campaign, source, returnUrl, metadata (JSON string)
+  Pre-submit: re-fetches slots to verify availability (optimistic concurrency)
+
+SUCCESS STATES:
+  A) Normal: AnimatedCheckmark + manage link + account link
+  B) Pending approval (requiresApproval services): hourglass + pending message
+  C) With returnUrl: redirect after 2s with query params
+
+WAITLIST:
+  Triggered when slot conflict detected (slotUnavailable flag)
+  POST /appointments/waitlist
+
+UI ELEMENTS:
+  - Progress bar (width = (step+1)/5 * 100%, uses org primaryColor)
+  - StepIndicator pills
+  - BookingSummaryPanel in right column (desktop)
+  - Framer Motion step transitions
+
+
+================================================================================
+17. APPOINTMENT MANAGEMENT (MAGIC LINKS)
+================================================================================
+
+Each appointment has a unique manageToken (UUID in database).
+
+EMAIL LINK FORMAT:
+  https://yoursite.com/manage/{manageToken}
+
+CAPABILITIES WITHOUT LOGIN:
+  - View appointment details
+  - Download .ics calendar file
+  - Reschedule (up to 3 times, subject to policy)
+  - Cancel (subject to cancellation cutoff)
+
+API ENDPOINTS:
+  GET  /appointments/manage/:token
+  POST /appointments/manage/:token/cancel
+  POST /appointments/manage/:token/reschedule  { startUtc }
+
+POLICY ENFORCEMENT (server-side):
+  - cancellationCutoffH from location settings
+  - leadTimeMinutes minimum advance booking
+  - bookingWindowDays maximum advance booking
+  - Reschedule count limit (3)
+
+
+================================================================================
+18. PRODUCT INTEGRATION & EMBED MODE
+================================================================================
+
+Full guide: docs/INTEGRATION.md
+
+URL EXAMPLES:
+  /book?product=demo&source=pricing&campaign=q2
+  /book?product=demo&returnUrl=https://yourapp.com/thanks
+  /embed/book?product=demo&source=footer
+
+PRODUCT KEYS (seed examples):
+  demo, consulting, support, training, enterprise
+
+SERVICE FILTERING:
+  Services have optional productKey field
+  ?product= filters integration context and provider queries
+
+WEBHOOKS:
+  On booking → POST to organization webhookUrl
+  Header: X-Webhook-Signature (HMAC-SHA256)
+  Payload: { event: "appointment.booked", timestamp, data: {...} }
+
+EMBED SECURITY:
+  Organization.allowedEmbedOrigins — JSON array of allowed parent origins
+
+RETURN URL:
+  After success, redirects to:
+  returnUrl?booked=true&appointmentId=<uuid>
+
+
+================================================================================
+19. BACKEND API REFERENCE
+================================================================================
+
+Base URL: http://localhost:3001
+Swagger:  http://localhost:3001/api/docs
+
+AUTH  /auth
+  GET    /auth/csrf
+  POST   /auth/login
+  POST   /auth/register
+  POST   /auth/logout
+  POST   /auth/refresh
+  POST   /auth/forgot-password
+  POST   /auth/reset-password
+  GET    /auth/verify-email
+  POST   /auth/resend-verification
+  GET    /auth/me                    (authenticated)
+  PATCH  /auth/me                    (authenticated)
+  GET    /auth/me/appointments       (authenticated, customer)
+
+CATALOG  /catalog
+  GET    /catalog/locations
+  GET    /catalog/locations/:locationId/services
+  GET    /catalog/locations/:locationId/providers
+  GET    /catalog/admin/services     (staff)
+  GET    /catalog/services/:id
+  POST   /catalog/services           (staff)
+  PATCH  /catalog/services/:id       (staff)
+  DELETE /catalog/services/:id     (staff, soft)
+  GET    /catalog/admin/providers    (staff)
+  POST   /catalog/providers          (staff)
+  PATCH  /catalog/providers/:id
+  DELETE /catalog/providers/:id
+  GET    /catalog/providers/:id/availability
+  PUT    /catalog/providers/:id/availability
+  GET    /catalog/providers/:id/blocked-times
+  POST   /catalog/providers/:id/blocked-times
+  DELETE /catalog/providers/:id/blocked-times/:btId
+  POST   /catalog/service-providers
+  DELETE /catalog/service-providers
+
+AVAILABILITY  /availability
+  GET    /availability/slots
+         ?locationId &serviceId &providerId &fromDate &toDate
+         [&excludeAppointmentId]
+
+APPOINTMENTS  /appointments
+  POST   /appointments/book            (public)
+  POST   /appointments/waitlist        (public)
+  GET    /appointments/manage/:token   (public)
+  POST   /appointments/manage/:token/cancel
+  POST   /appointments/manage/:token/reschedule
+  POST   /appointments/admin/book      (staff)
+  GET    /appointments/waitlist        (staff)
+  GET    /appointments/admin           (staff, paginated)
+  GET    /appointments/admin/export    (staff)
+  GET    /appointments/admin/:id       (staff)
+  PATCH  /appointments/admin/:id/status
+  PATCH  /appointments/admin/:id/reschedule
+
+TEAM  /team
+  GET    /team/members                 (staff)
+  GET    /team/invites                 (staff)
+  POST   /team/invites                 (staff)
+  DELETE /team/invites/:id
+  GET    /team/invites/token/:token    (public)
+  POST   /team/invites/token/:token/accept (public)
+
+SETTINGS  /settings
+  GET    /settings/organization        (staff)
+  PATCH  /settings/organization
+  PATCH  /settings/locations/:locationId
+
+REPORTS  /reports
+  GET    /reports/summary?dateFrom&dateTo&status
+  GET    /reports/by-provider?dateFrom&dateTo&status
+
+INTEGRATION  /integration
+  GET    /integration/context?org&product
+
+INTEGRATIONS  /integrations
+  POST   /integrations/calendar/sync
+
+HEALTH  /health
+  GET    /health
+  GET    /health/metrics
+
+
+================================================================================
+20. DATABASE SCHEMA (PRISMA / MYSQL)
+================================================================================
+
+Organization
+  - id, name, slug (unique), logoUrl, primaryColor
+  - allowedEmbedOrigins, webhookUrl, webhookSecret
+
+Location
+  - organizationId, name, timezone, address, phone
+  - cancellationCutoffH (default 24), leadTimeMinutes (default 120)
+  - bookingWindowDays (default 60)
+
+User
+  - organizationId, email (unique), passwordHash, name, role
+  - providerId (optional link to Provider)
+  - emailVerified, emailVerifyToken, passwordResetToken + expiries
+
+TeamInvite
+  - organizationId, email, role, providerId?, token, invitedById
+  - expiresAt, acceptedAt
+
+Provider
+  - organizationId, locationId, name, email?, bio?, isActive
+
+Service
+  - organizationId, locationId, productKey?, name, description?
+  - durationMinutes, bufferBeforeMinutes, bufferAfterMinutes
+  - priceCents?, requiresApproval, isActive
+
+ServiceProvider (join table)
+  - serviceId + providerId (many-to-many)
+
+AvailabilityRule
+  - providerId, dayOfWeek (0=Sun..6=Sat), startTime, endTime (HH:mm strings)
+
+BlockedTime
+  - providerId, startUtc, endUtc, reason?
+
+Customer
+  - userId? (optional link), name, email (unique), phone?
+
+Appointment
+  - organizationId, locationId, serviceId, providerId, customerId
+  - startUtc, endUtc, timezone, customerTimezone?
+  - status (default "confirmed"), statusUpdatedAt?
+  - source, product?, campaign?, returnUrl?, metadata?
+  - idempotencyKey? (unique), manageToken (unique)
+  - rescheduleCount (default 0)
+  - reminderSent24h, reminderSent1h, notes?
+
+AppointmentEvent (audit log)
+  - appointmentId, action, actorUserId?, actorEmail?, payload?
+
+NotificationLog
+  - appointmentId, type, status, recipient, errorMessage?, sentAt?
+
+Waitlist
+  - serviceId, providerId?, preferredDate, customerEmail, customerName
+  - notifiedAt?
+
+IdempotencyRecord
+  - key (unique), response (cached JSON for duplicate submits)
+
+
+================================================================================
+21. SCHEDULING ENGINE
+================================================================================
+
+Package: packages/scheduling-core
+
+Responsibilities:
+  - Generate available time slots from availability rules
+  - Respect service duration + buffer before/after
+  - Exclude existing appointments and blocked times
+  - Handle timezone conversion (Luxon)
+  - Enforce lead time and booking window
+
+API availability.service.ts orchestrates:
+  - Load provider rules, blocks, existing appointments
+  - Call scheduling-core to produce slot list
+  - Return { slots: [{ startUtc, endUtc }], timezone }
+
+
+================================================================================
+22. NOTIFICATIONS & EMAIL
+================================================================================
+
+Module: apps/api/src/notifications/
+
+EMAIL TYPES (templates):
+  - Booking confirmation (with manage link)
+  - Reminder 24 hours before
+  - Reminder 1 hour before
+  - Rescheduled notification
+  - Cancelled notification
+  - Waitlist slot available
+  - Auth emails (verify, reset password)
+
+DELIVERY:
+  - notifications.processor.ts (queue worker)
+  - reminder.scheduler.ts (cron for upcoming appointments)
+  - Without SMTP configured: logs to console in development
+
+NotificationLog table tracks send status per appointment.
+
+
+================================================================================
+23. REPORTS & ANALYTICS
+================================================================================
+
+Page: /admin/reports
+
+METRICS (GET /reports/summary):
+  - total, confirmed, cancelled, noShow counts
+  - cancellationRate (percentage)
+
+BY PROVIDER (GET /reports/by-provider):
+  - Array of { providerId, providerName, count }
+  - Rendered as Recharts bar chart + table
+
+FILTERS:
+  - dateFrom, dateTo (ISO date strings)
+  - status (optional, default all)
+
+
+================================================================================
+24. TEAM INVITES & ROLES
+================================================================================
+
+INVITABLE ROLES:
+  org_admin         — Full access including settings and team
+  location_manager  — Schedules and reports
+  provider          — Linked to a provider record, own appointments
+
+INVITE FLOW:
+  1. Admin submits email + role at /admin/team
+  2. API creates TeamInvite with 7-day expiry (typical)
+  3. Returns acceptUrl: https://site/invite/{token}
+  4. Invitee sets name + password at /invite/[token]
+  5. User record created with role; invite marked accepted
+
+PROVIDER ROLE:
+  Must select providerId when inviting — links User.providerId to Provider
+
+
+================================================================================
+25. SECURITY FEATURES
+================================================================================
+
+  - bcrypt password hashing
+  - JWT in httpOnly cookies (not localStorage)
+  - CSRF protection on all mutations
+  - CORS restricted to CORS_ORIGIN env (default localhost:3000)
+  - Rate limiting on API (configured in app module)
+  - RBAC via RolesGuard + @Roles decorator
+  - Open redirect prevention (sanitizeNextPath — only relative paths)
+  - Idempotency keys on booking (prevent double-submit)
+  - MySQL row locking for concurrent booking attempts
+  - Webhook HMAC signature verification
+  - Public manage tokens (unguessable UUIDs)
+  - ValidationPipe with whitelist on all DTOs
+
+
+================================================================================
+26. ERROR & EDGE PAGES
+================================================================================
+
+404 NOT FOUND (not-found.tsx):
+  - Shown for any unmatched route
+  - Links: Go home, Book appointment
+
+GLOBAL ERROR (error.tsx):
+  - Catches unhandled React errors in app tree
+  - Try again (reset) + Go home
+
+TOAST ERRORS:
+  - Most API failures show sonner toast with API message
+
+INLINE ERRORS:
+  - Booking wizard Alert component
+  - Manage page Alert for load failures
+  - Form field validation messages (red text below inputs)
+
+
+================================================================================
+27. ENVIRONMENT VARIABLES
+================================================================================
+
+See .env.example in project root. Key variables:
+
+DATABASE
+  DATABASE_URL=mysql://user:pass@localhost:3306/appointments
+
+API
+  API_PORT=3001
+  JWT_SECRET=...
+  JWT_REFRESH_SECRET=...
+  CORS_ORIGIN=http://localhost:3000
+
+REDIS (for notification queue)
+  REDIS_URL=redis://localhost:6379
+
+EMAIL (optional — console fallback)
+  SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM
+
+WEBHOOKS (optional global defaults)
+  WEBHOOK_URL, WEBHOOK_SECRET
+
+FRONTEND
+  NEXT_PUBLIC_API_URL=http://localhost:3001
+
+
+================================================================================
+28. LOCAL DEVELOPMENT & URLS
+================================================================================
+
+SETUP:
+  pnpm install
+  cp .env.example .env
+  CREATE DATABASE appointments;
+  pnpm db:push
+  pnpm db:seed
+  pnpm dev
+
+RUNNING SERVICES (pnpm dev):
+  API:  http://localhost:3001
+  WEB:  http://localhost:3000
+  Swagger: http://localhost:3001/api/docs
+
+DOCKER (optional):
+  docker compose up -d   # MySQL + Redis
+  pnpm install && pnpm db:push && pnpm db:seed && pnpm dev
+
+
+================================================================================
+29. SEED DATA & DEMO CREDENTIALS
+================================================================================
+
+Organization slug: demo-company
+Default location timezone: America/New_York (check seed for exact)
+
+README demo login:
+  admin@demo.com / admin123
+
+Seed file actual admin (apps/api/prisma/seed.ts):
+  Email: asadshah1024+admin@gmail.com
+  Password: Asad@0451
+  Role: org_admin
+
+SERVICES (10 seeded):
+  Product Demo (productKey: demo, 30 min)
+  Discovery Call (demo, 45 min)
+  Technical Consultation (consulting, 60 min)
+  Onboarding Session (demo, 45 min)
+  Support Check-in (support, 20 min)
+  Strategy Review (consulting, 60 min)
+  Training Workshop (training, 90 min)
+  Account Review (consulting, 30 min)
+  Integration Setup (demo, 60 min)
+  Executive Briefing (enterprise, 30 min)
+
+PROVIDERS (10 seeded):
+  Dr. Jane Smith, Alex Johnson, Maria Garcia, James Wilson, Sarah Chen,
+  David Brown, Emily Davis, Michael Lee, Lisa Anderson, Robert Taylor
+
+AVAILABILITY:
+  Mon–Fri 09:00–17:00 for each provider
+
+STABLE TEST UUIDs (for API tests):
+  locationId: 11111111-1111-4111-8111-111111111101
+  serviceId:  11111111-1111-4111-8111-111111111102
+  providerId: 11111111-1111-4111-8111-111111111201
+
+
+================================================================================
+30. FILE STRUCTURE REFERENCE
+================================================================================
+
+WEB PAGES (apps/web/src/app/)
+  page.tsx                          → /
+  book/page.tsx                     → /book
+  embed/layout.tsx + embed/book/    → /embed/book
+  (auth)/login|register|forgot|reset|verify/
+  account/page.tsx + layout.tsx     → /account
+  manage/[token]/page.tsx
+  invite/[token]/page.tsx
+  admin/layout.tsx                  → wraps all /admin/*
+  admin/page.tsx                    → redirect
+  admin/dashboard/page.tsx
+  admin/services/page.tsx
+  admin/providers/page.tsx
+  admin/providers/[id]/availability/page.tsx
+  admin/appointments/[id]/page.tsx
+  admin/reports/page.tsx
+  admin/settings/page.tsx
+  admin/team/page.tsx
+  not-found.tsx, error.tsx, layout.tsx, globals.css
+
+KEY LIB FILES
+  lib/api.ts, lib/auth-redirect.ts, lib/auth-schemas.ts
+  lib/brand.ts, lib/useAuthUser.ts, lib/useStaffSession.ts
+  lib/cn.ts, lib/utils.ts
+
+API MODULES (apps/api/src/)
+  auth/, appointments/, availability/, catalog/
+  team/, settings/, reports/, integration/
+  notifications/, health/, prisma/
+
+PACKAGES
+  packages/shared-types/src/index.ts  — enums and interfaces
+  packages/scheduling-core/           — slot generation
+
+
+================================================================================
+APPOINTMENT STATUS VALUES
+================================================================================
+
+  pending      — Awaiting approval (requiresApproval services)
+  confirmed    — Active booking
+  checked_in   — Customer arrived
+  completed    — Session finished
+  no_show      — Customer did not attend
+  cancelled    — Cancelled by customer or staff
+
+
+================================================================================
+APPOINTMENT SOURCE VALUES
+================================================================================
+
+  web      — Standard /book page
+  embed    — /embed/book iframe
+  admin    — Created by staff in admin portal
+  api      — External API integration
+
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================
+
+For additional guides see:
+  docs/INTEGRATION.md          — Product embedding and webhooks
+  docs/discovery/user-journeys.md — User journey narratives
+  docs/discovery/mvp-scope.md  — MVP feature scope
+  docs/runbooks/deployment.md  — Deployment instructions
+  docs/runbooks/support.md     — Support procedures
