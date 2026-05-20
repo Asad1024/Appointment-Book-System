@@ -1,3 +1,5 @@
+import type { ReminderScheduleItem } from '@pkg/shared-types';
+
 export type ManageAppointment = {
   id: string;
   startUtc: string;
@@ -11,6 +13,9 @@ export type ManageAppointment = {
   serviceId: string;
   providerId: string;
   notes?: string | null;
+  remindersEnabled?: boolean;
+  reminders?: ReminderScheduleItem[];
+  canCancelOrReschedule?: boolean;
   service: { name: string; description?: string | null; durationMinutes?: number };
   provider: { name: string };
   customer: { name: string; email: string };

@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@pkg/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
+import { slugifyName, uniqueProviderSlug, uniqueServiceSlug } from '../common/slug.util';
 
 /** Bookable catalog entries (not archived). */
 const NOT_ARCHIVED = { archivedAt: null } as const;
@@ -151,7 +152,12 @@ export class CatalogService {
     if (data.priceCents != null && data.priceCents < 0) {
       throw new BadRequestException('Price must be zero or positive');
     }
-    return this.prisma.service.create({ data });
+    const slug = await uniqueServiceSlug(
+      this.prisma,
+      data.organizationId,
+      slugifyName(data.name),
+    );
+    return this.prisma.service.create({ data: { ...data, slug } });
   }
 
   async updateService(
@@ -170,8 +176,17 @@ export class CatalogService {
     if (data.priceCents != null && data.priceCents < 0) {
       throw new BadRequestException('Price must be zero or positive');
     }
-    await this.getService(id);
-    return this.prisma.service.update({ where: { id }, data });
+    const existing = await this.getService(id);
+    const payload = { ...data };
+    if (data.name && !existing.slug) {
+      (payload as { slug?: string }).slug = await uniqueServiceSlug(
+        this.prisma,
+        existing.organizationId,
+        slugifyName(data.name),
+        id,
+      );
+    }
+    return this.prisma.service.update({ where: { id }, data: payload });
   }
 
   async archiveService(id: string) {
@@ -206,15 +221,29 @@ export class CatalogService {
     email?: string;
     bio?: string;
   }) {
-    return this.prisma.provider.create({ data });
+    const slug = await uniqueProviderSlug(
+      this.prisma,
+      data.organizationId,
+      slugifyName(data.name),
+    );
+    return this.prisma.provider.create({ data: { ...data, slug } });
   }
 
   async updateProvider(
     id: string,
     data: { name?: string; email?: string; bio?: string; isActive?: boolean },
   ) {
-    await this.getProvider(id);
-    return this.prisma.provider.update({ where: { id }, data });
+    const existing = await this.getProvider(id);
+    const payload = { ...data };
+    if (data.name && !existing.slug) {
+      (payload as { slug?: string }).slug = await uniqueProviderSlug(
+        this.prisma,
+        existing.organizationId,
+        slugifyName(data.name),
+        id,
+      );
+    }
+    return this.prisma.provider.update({ where: { id }, data: payload });
   }
 
   async archiveProvider(id: string) {
@@ -302,5 +331,67 @@ export class CatalogService {
     });
     if (result.count === 0) throw new NotFoundException('Blocked time not found');
     return { ok: true };
+  }
+
+  async listBookingLinkOptions(
+    orgId: string,
+    locationId: string,
+    restrictProviderId?: string,
+  ) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { slug: true },
+    });
+    if (!org) throw new NotFoundException('Organization not found');
+
+    const location = await this.prisma.location.findFirst({
+      where: { id: locationId, organizationId: orgId },
+    });
+    if (!location) throw new NotFoundException('Location not found');
+
+    const links = await this.prisma.serviceProvider.findMany({
+      where: {
+        service: {
+          locationId,
+          organizationId: orgId,
+          isActive: true,
+          archivedAt: null,
+        },
+        provider: {
+          locationId,
+          isActive: true,
+          archivedAt: null,
+          ...(restrictProviderId ? { id: restrictProviderId } : {}),
+        },
+      },
+      include: {
+        service: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            durationMinutes: true,
+            productKey: true,
+          },
+        },
+        provider: { select: { id: true, name: true, slug: true } },
+      },
+      orderBy: [{ service: { name: 'asc' } }, { provider: { name: 'asc' } }],
+    });
+
+    return {
+      orgSlug: org.slug,
+      locationId,
+      pairs: links.map((l) => ({
+        serviceId: l.service.id,
+        serviceName: l.service.name,
+        serviceSlug: l.service.slug,
+        durationMinutes: l.service.durationMinutes,
+        productKey: l.service.productKey,
+        providerId: l.provider.id,
+        providerName: l.provider.name,
+        providerSlug: l.provider.slug,
+      })),
+    };
   }
 }

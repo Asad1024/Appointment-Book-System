@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock3,
   HandCoins,
+  Link2,
   MoreHorizontal,
   Pause,
   Pencil,
@@ -33,6 +34,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ServiceIntakeFieldsEditor } from '@/components/admin/ServiceIntakeFieldsEditor';
+import { GenerateBookingLinkSlideOver } from '@/components/admin/GenerateBookingLinkSlideOver';
 import {
   type BookingCurrencyCode,
   DEFAULT_BOOKING_CURRENCY,
@@ -106,6 +108,8 @@ export default function AdminServicesPage() {
   const [searchValue, setSearchValue] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'paused'>('all');
   const [priceFilter, setPriceFilter] = useState<'all' | 'free' | 'paid'>('all');
+  const [linkPanelOpen, setLinkPanelOpen] = useState(false);
+  const [linkServiceId, setLinkServiceId] = useState<string | undefined>();
 
   const load = useCallback(async () => {
     if (!locationId) return;
@@ -204,6 +208,11 @@ export default function AdminServicesPage() {
     } catch {
       setLinkedIds(new Set());
     }
+  }
+
+  function openBookingLink(serviceId?: string) {
+    setLinkServiceId(serviceId);
+    setLinkPanelOpen(true);
   }
 
   function openNew() {
@@ -370,6 +379,19 @@ export default function AdminServicesPage() {
               className={menuItemClass}
               onClick={() => {
                 setOpenMenuId(null);
+                openBookingLink(s.id);
+              }}
+            >
+              <Link2 className={iconClass} />
+              Booking link
+            </button>
+          )}
+          {!s.archivedAt && (
+            <button
+              type="button"
+              className={menuItemClass}
+              onClick={() => {
+                setOpenMenuId(null);
                 openEdit(s);
               }}
             >
@@ -506,10 +528,16 @@ export default function AdminServicesPage() {
                 Manage bookable services and provider assignments
               </p>
             </div>
-            <Button onClick={openNew}>
-              <Plus className="mr-2 h-4 w-4" />
-              New service
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => openBookingLink()} disabled={!locationId}>
+                <Link2 className="mr-2 h-4 w-4" />
+                Booking links
+              </Button>
+              <Button onClick={openNew}>
+                <Plus className="mr-2 h-4 w-4" />
+                New service
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -772,6 +800,15 @@ export default function AdminServicesPage() {
           </TabsContent>
         </Tabs>
       </SlideOver>
+
+      {locationId && (
+        <GenerateBookingLinkSlideOver
+          open={linkPanelOpen}
+          onOpenChange={setLinkPanelOpen}
+          locationId={locationId}
+          initialServiceId={linkServiceId}
+        />
+      )}
 
       <ConfirmDialog
         open={!!serviceAction}

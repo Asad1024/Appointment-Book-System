@@ -83,6 +83,6 @@ export function calendarEventFromAppointment(appt: {
 
 export function publicApiBaseUrl(): string {
   if (process.env.API_PUBLIC_URL) return process.env.API_PUBLIC_URL.replace(/\/$/, '');
-  const port = process.env.API_PORT ?? '3001';
+  const port = process.env.API_PORT ?? '3003';
   return `http://localhost:${port}`;
 }

@@ -6,10 +6,15 @@ Connect other company products to this booking system so users can book demos wi
 
 | Use case | URL |
 |----------|-----|
-| Full-page booking | `http://localhost:3000/book?product=demo&source=pricing` |
+| Full-page booking | `http://localhost:3002/book?product=demo&source=pricing` |
 | Return after booking | Add `&returnUrl=https://your-product.com/thanks` |
-| Embedded iframe | `http://localhost:3000/embed/book?product=demo&source=footer` |
-| Integration context API | `GET http://localhost:3001/integration/context?org=demo-company&product=demo` |
+| Embedded iframe | `http://localhost:3002/embed/book?product=demo&source=footer` |
+| **Filled link (Cal-like, one page)** | `http://localhost:3002/book/event?org=demo-company&serviceId=...&providerId=...` |
+| **Partner picker (Leads Reach)** | `http://localhost:3002/partner/book?org=demo-company&source=leadsreach&ref=lead_1&returnUrl=...&name=...&email=...&phone=...` |
+
+Partner URLs use **minimal chrome** (no site navbar). Pass lead prefill via `name`, `email`, `phone` query params — see [leadsreach-booking-prefill.md](./leadsreach-booking-prefill.md).
+| Filled link API | `GET http://localhost:3003/integration/booking-event?org=demo-company&serviceId=...&providerId=...` |
+| Integration context API | `GET http://localhost:3003/integration/context?org=demo-company&product=demo` |
 
 ## 1. Map products to services
 
@@ -55,7 +60,155 @@ After confirmation, the user is redirected to `returnUrl?booked=true&appointment
 
 Configure allowed parent origins on the organization (`allowedEmbedOrigins` JSON array in the database).
 
-## 3. Query parameters
+## 3. Filled booking links (one page)
+
+Use when service and provider are already chosen (sales call, CRM, generated link).
+
+```
+http://localhost:3002/book/event?org=demo-company&serviceId=<uuid>&providerId=<uuid>&source=leadsreach
+```
+
+After seed, demo filled link (Product Demo + John Smith):
+
+```
+http://localhost:3002/book/event?org=demo-company&serviceId=11111111-1111-4111-8111-111111111102&providerId=11111111-1111-4111-8111-111111111201&source=demo
+```
+
+Embed:
+
+```
+http://localhost:3002/embed/book/event?org=demo-company&serviceId=...&providerId=...
+```
+
+Resolve metadata (public):
+
+```
+GET /integration/booking-event?org=demo-company&serviceId=...&providerId=...
+```
+
+Pretty URLs (recommended when slugs are set):
+
+```
+http://localhost:3002/book/john-smith/product-demo?org=demo-company&source=sales-call
+```
+
+Legacy ID URLs still work:
+
+```
+http://localhost:3002/book/event?org=demo-company&serviceId=...&providerId=...
+```
+
+### Generate links in admin (Phase 2)
+
+Staff with access to **Admin → Providers** or **Services** can open **Booking links**, pick service + provider, and copy the filled URL. Providers use **My booking link** on the provider dashboard (only their own services).
+
+Staff API (for building UIs): `GET /catalog/staff/booking-link-options?locationId=<uuid>` (JWT).
+
+## 8. Partner API (secure — LeadsReach, etc.)
+
+### Setup (org admin)
+
+1. **Admin → Settings → Integrations**
+2. **Create API key** — copy `sk_…` once (shown only at creation)
+3. Optional: set **Webhook URL** + secret for `appointment.booked` events
+4. In LeadsReach: store the API key on the **server** only
+
+### Secure short booking session (recommended — Leads Reach)
+
+No PII in the browser URL. Create a 15-minute session server-side, open the returned short link.
+
+```http
+POST /partner/v1/booking-sessions
+Authorization: Bearer sk_...
+Content-Type: application/json
+
+{
+  "ref": "lead_7377_deal_9",
+  "returnUrl": "https://crm.example/bases/141/crm?deal_id=9",
+  "source": "leadsreach",
+  "customerName": "Jane Doe",
+  "customerEmail": "jane@example.com",
+  "customerPhone": "+971501234567",
+  "serviceId": "uuid",
+  "providerId": "uuid",
+  "leadLabel": "Jane Doe · Deal #9"
+}
+```
+
+Response: `{ "url": "http://localhost:3002/b/a1b2c3...", "expiresAt": "...", "mode": "calendar" }`
+
+- With `serviceId` + `providerId` → calendar + details only (premium flow).
+- Without them → full service/provider picker on Slotwise.
+
+### Bootstrap (connect — Leads Reach)
+
+Called when a partner saves an API key. Returns org identity and all bookable service/provider pairs.
+
+```http
+GET /partner/v1/bootstrap
+Authorization: Bearer sk_...
+```
+
+Response:
+
+```json
+{
+  "orgSlug": "demo-company",
+  "orgName": "Demo Company",
+  "organization": { "slug": "demo-company", "name": "Demo Company" },
+  "pairs": [
+    {
+      "serviceId": "uuid",
+      "serviceName": "Product Demo",
+      "providerId": "uuid",
+      "providerName": "John Smith"
+    }
+  ]
+}
+```
+
+### Create a booking link (server-to-server)
+
+```http
+POST /partner/v1/booking-links
+Authorization: Bearer sk_your_key_here
+Content-Type: application/json
+
+{
+  "serviceId": "uuid",
+  "providerId": "uuid",
+  "source": "leadsreach",
+  "campaign": "q2",
+  "ref": "lead_8821",
+  "returnUrl": "https://leadsreach.app/thanks"
+}
+```
+
+Response:
+
+```json
+{
+  "url": "http://localhost:3002/book/john-smith/product-demo?org=demo-company&source=leadsreach&ref=lead_8821",
+  "orgSlug": "demo-company",
+  "serviceSlug": "product-demo",
+  "providerSlug": "john-smith"
+}
+```
+
+### List bookable pairs
+
+```http
+GET /partner/v1/booking-link-options?locationId=<uuid>
+Authorization: Bearer sk_...
+```
+
+### Auth
+
+- Header: `Authorization: Bearer sk_…` **or** `X-API-Key: sk_…`
+- No CSRF cookie required on partner routes
+- Keys are SHA-256 hashed at rest; revoke in admin anytime
+
+## 4. Query parameters (simple / wizard links)
 
 | Parameter | Description |
 |-----------|-------------|
@@ -65,24 +218,43 @@ Configure allowed parent origins on the organization (`allowedEmbedOrigins` JSON
 | `campaign` | Marketing campaign id |
 | `returnUrl` | HTTPS URL to redirect after successful booking |
 
-## 4. Webhooks
+## 5. Webhooks
 
-When an appointment is booked, the API can POST to your webhook:
+Slotwise POSTs JSON to your webhook URL when appointments change.
+
+| Event | When |
+|-------|------|
+| `appointment.booked` | New booking confirmed |
+| `appointment.cancelled` | Customer or admin cancels |
+| `appointment.rescheduled` | Customer or admin changes date/time |
+
+Example (`appointment.booked`):
 
 ```json
 {
   "event": "appointment.booked",
   "timestamp": "2026-05-18T12:00:00.000Z",
   "data": {
-    "id": "...",
+    "appointmentId": "...",
+    "status": "confirmed",
+    "customerEmail": "user@example.com",
+    "customerName": "Jane Doe",
+    "serviceId": "...",
+    "serviceName": "Product Demo",
+    "providerId": "...",
+    "providerName": "John Smith",
+    "locationId": "...",
+    "startUtc": "2026-05-20T10:00:00.000Z",
+    "endUtc": "2026-05-20T10:30:00.000Z",
     "product": "crm",
     "campaign": "q2",
-    "source": "pricing",
-    "customerEmail": "user@example.com",
-    "startUtc": "..."
+    "source": "leadsreach",
+    "rescheduleCount": 0
   }
 }
 ```
+
+`appointment.rescheduled` includes `previousStartUtc` (ISO string). Admin actions may include `rescheduledByAdmin` or `cancelledByAdmin`: true.
 
 Configure per organization (`webhookUrl`, `webhookSecret`) or globally via `.env`:
 
@@ -93,11 +265,11 @@ WEBHOOK_SECRET=your-hmac-secret
 
 Verify with header `X-Webhook-Signature` (HMAC-SHA256 of the raw body).
 
-## 5. Customer accounts (optional)
+## 6. Customer accounts (optional)
 
 Customers can register at `/register` and sign in at `/login` to see appointments at `/account`. Guest booking and magic-link manage links still work without an account.
 
-## 6. Admin setup checklist
+## 7. Admin setup checklist
 
 1. Create organization and location in admin (or seed).
 2. Add services with `productKey` matching your product ids.

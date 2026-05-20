@@ -1,11 +1,27 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Building2, CreditCard, Globe2, MapPin, MoonStar, Save, Sun, Laptop } from 'lucide-react';
+import {
+  Building2,
+  CreditCard,
+  Globe2,
+  MapPin,
+  MoonStar,
+  Save,
+  Sun,
+  Laptop,
+} from 'lucide-react';
+import { UserRole } from '@pkg/shared-types';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import { AdminLocationsCard, type OrgLocation } from '@/components/admin/AdminLocationsCard';
+import { ReminderOffsetsAdminEditor } from '@/components/shared/ReminderPreferencesEditor';
+import {
+  DEFAULT_REMINDER_OFFSETS_MINUTES,
+  parseReminderOffsetsJson,
+} from '@pkg/shared-types';
 import { BillingCard } from '@/components/admin/BillingCard';
+import { AdminIntegrationsCard } from '@/components/admin/AdminIntegrationsCard';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
@@ -34,8 +50,11 @@ import { cn } from '@/lib/utils';
 type OrganizationSettings = {
   id: string;
   name: string;
+  slug?: string;
   logoUrl?: string | null;
   bookingCurrency?: string | null;
+  webhookUrl?: string | null;
+  hasWebhookSecret?: boolean;
   locations: OrgLocation[];
 };
 
@@ -52,7 +71,18 @@ type LocationForm = {
   cancellationCutoffH: number;
   leadTimeMinutes: number;
   bookingWindowDays: number;
+  reminderOffsetsMinutes: number[];
 };
+
+function parseLocationReminderOffsets(location: OrgLocation): number[] {
+  if (Array.isArray(location.reminderOffsetsMinutes)) {
+    return location.reminderOffsetsMinutes;
+  }
+  if (typeof location.reminderOffsetsMinutes === 'string') {
+    return parseReminderOffsetsJson(location.reminderOffsetsMinutes);
+  }
+  return [...DEFAULT_REMINDER_OFFSETS_MINUTES];
+}
 
 function mapLocationToForm(location: OrgLocation): LocationForm {
   return {
@@ -63,6 +93,7 @@ function mapLocationToForm(location: OrgLocation): LocationForm {
     cancellationCutoffH: location.cancellationCutoffH,
     leadTimeMinutes: location.leadTimeMinutes,
     bookingWindowDays: location.bookingWindowDays,
+    reminderOffsetsMinutes: parseLocationReminderOffsets(location),
   };
 }
 
@@ -73,6 +104,7 @@ export default function AdminSettingsPage() {
 
   const [org, setOrg] = useState<OrganizationSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   const [branding, setBranding] = useState<BrandingForm>({
     name: '',
@@ -89,6 +121,7 @@ export default function AdminSettingsPage() {
     cancellationCutoffH: 24,
     leadTimeMinutes: 60,
     bookingWindowDays: 30,
+    reminderOffsetsMinutes: [...DEFAULT_REMINDER_OFFSETS_MINUTES],
   });
 
   const [savingBranding, setSavingBranding] = useState(false);
@@ -126,6 +159,7 @@ export default function AdminSettingsPage() {
           apiAuth<AuthUser>('/auth/me'),
         ]);
         applyOrganization(orgData);
+        setUserRole(me.role);
         setProfile((prev) => ({
           ...prev,
           name: me.name ?? '',
@@ -271,6 +305,7 @@ export default function AdminSettingsPage() {
           cancellationCutoffH: Math.max(0, Number(locationForm.cancellationCutoffH) || 0),
           leadTimeMinutes: Math.max(0, Number(locationForm.leadTimeMinutes) || 0),
           bookingWindowDays: Math.max(1, Number(locationForm.bookingWindowDays) || 1),
+          reminderOffsetsMinutes: locationForm.reminderOffsetsMinutes,
         }),
       });
 
@@ -289,6 +324,7 @@ export default function AdminSettingsPage() {
                   cancellationCutoffH: Math.max(0, Number(locationForm.cancellationCutoffH) || 0),
                   leadTimeMinutes: Math.max(0, Number(locationForm.leadTimeMinutes) || 0),
                   bookingWindowDays: Math.max(1, Number(locationForm.bookingWindowDays) || 1),
+                  reminderOffsetsMinutes: [...locationForm.reminderOffsetsMinutes],
                 }
               : loc,
           ),
@@ -444,6 +480,14 @@ export default function AdminSettingsPage() {
                     >
                       Billing
                     </TabsTrigger>
+                    {(userRole === UserRole.ORG_ADMIN || userRole === UserRole.SUPER_ADMIN) && (
+                      <TabsTrigger
+                        value="integrations"
+                        className="rounded-lg px-4 data-[state=active]:bg-brand-600 data-[state=active]:text-white"
+                      >
+                        Integrations
+                      </TabsTrigger>
+                    )}
                   </TabsList>
                   <p className="text-xs text-text-muted">
                     Use tabs to keep settings grouped and easy to manage.
@@ -898,6 +942,14 @@ export default function AdminSettingsPage() {
                                 }
                               />
                             </div>
+                            <div className="sm:col-span-2">
+                              <ReminderOffsetsAdminEditor
+                                selectedMinutes={locationForm.reminderOffsetsMinutes}
+                                onSelectedChange={(reminderOffsetsMinutes) =>
+                                  setLocationForm((prev) => ({ ...prev, reminderOffsetsMinutes }))
+                                }
+                              />
+                            </div>
                           </div>
 
                           <Button type="submit" loading={savingLocation}>
@@ -912,6 +964,19 @@ export default function AdminSettingsPage() {
                 <TabsContent value="billing" className="mt-0">
                   <BillingCard />
                 </TabsContent>
+
+                {(userRole === UserRole.ORG_ADMIN || userRole === UserRole.SUPER_ADMIN) && (
+                  <TabsContent value="integrations" className="mt-0">
+                    <AdminIntegrationsCard
+                      orgSlug={org.slug}
+                      webhook={{
+                        webhookUrl: org.webhookUrl,
+                        hasWebhookSecret: org.hasWebhookSecret,
+                      }}
+                      onWebhookSaved={() => void loadOrganization(false)}
+                    />
+                  </TabsContent>
+                )}
               </Tabs>
             </>
           )}

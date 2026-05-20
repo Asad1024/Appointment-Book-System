@@ -4,7 +4,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { addDays, format, parseISO, startOfWeek } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
-import { CalendarDays, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Filter, List } from 'lucide-react';
+import {
+  CalendarDays,
+  Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  Link2,
+  List,
+} from 'lucide-react';
 import {
   AppointmentCalendar,
   type CalendarAppointment,
@@ -31,6 +39,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useRealtimeEvents } from '@/lib/useRealtimeEvents';
 import { GoogleCalendarConnect } from '@/components/provider/GoogleCalendarConnect';
+import { GenerateBookingLinkSlideOver } from '@/components/admin/GenerateBookingLinkSlideOver';
 
 type Appointment = CalendarAppointment;
 type DashboardView = 'list' | 'calendar';
@@ -54,6 +63,7 @@ export default function ProviderDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [linkPanelOpen, setLinkPanelOpen] = useState(false);
 
   const weekEnd = useMemo(() => format(addDays(parseISO(weekStart), 6), 'yyyy-MM-dd'), [weekStart]);
   const tz = profile?.location?.timezone ?? 'UTC';
@@ -133,6 +143,13 @@ export default function ProviderDashboardPage() {
             {profile?.location?.name ? ` - ${profile.location.name}` : ''}
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {profile?.locationId && (
+            <Button variant="outline" onClick={() => setLinkPanelOpen(true)}>
+              <Link2 className="mr-2 h-4 w-4" />
+              My booking link
+            </Button>
+          )}
         <div className="flex gap-1 rounded-lg border border-brand-200 bg-brand-50 p-1 dark:border-brand-800/60 dark:bg-brand-950/35">
           <Button
             type="button"
@@ -162,6 +179,7 @@ export default function ProviderDashboardPage() {
           >
             <List className="h-4 w-4" />
           </Button>
+        </div>
         </div>
       </div>
 
@@ -307,6 +325,18 @@ export default function ProviderDashboardPage() {
           )}
         </CardBody>
       </Card>
+      )}
+
+      {profile?.locationId && (
+        <GenerateBookingLinkSlideOver
+          open={linkPanelOpen}
+          onOpenChange={setLinkPanelOpen}
+          locationId={profile.locationId}
+          initialProviderId={profile.id}
+          sourceDefault="provider"
+          title="My booking link"
+          description="Send this link to customers so they book with you for a specific service."
+        />
       )}
     </PageTransition>
   );

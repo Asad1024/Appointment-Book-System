@@ -7,6 +7,7 @@ import {
   Calendar,
   Mail,
   MapPin,
+  Link2,
   MoreHorizontal,
   Pause,
   Pencil,
@@ -21,6 +22,9 @@ import { apiAuth } from '@/lib/api';
 import { useAdminLocation } from '@/lib/admin-location-context';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { SlideOver } from '@/components/admin/SlideOver';
+import {
+  GenerateBookingLinkSlideOver,
+} from '@/components/admin/GenerateBookingLinkSlideOver';
 import { ResourceListToolbar } from '@/components/admin/ResourceListToolbar';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
@@ -62,6 +66,8 @@ export default function AdminProvidersPage() {
   const [searchValue, setSearchValue] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'paused'>('all');
   const [contactFilter, setContactFilter] = useState<'all' | 'with-email' | 'no-email'>('all');
+  const [linkPanelOpen, setLinkPanelOpen] = useState(false);
+  const [linkProviderId, setLinkProviderId] = useState<string | undefined>();
 
   const load = useCallback(async () => {
     if (!locationId) return;
@@ -148,6 +154,11 @@ export default function AdminProvidersPage() {
     setPanelOpen(false);
     setEditing(null);
     setForm(emptyForm);
+  }
+
+  function openBookingLink(providerId?: string) {
+    setLinkProviderId(providerId);
+    setLinkPanelOpen(true);
   }
 
   function openNew() {
@@ -268,6 +279,19 @@ export default function AdminProvidersPage() {
               className={menuItemClass}
               onClick={() => {
                 setOpenMenuId(null);
+                openBookingLink(p.id);
+              }}
+            >
+              <Link2 className={iconClass} />
+              Booking link
+            </button>
+          )}
+          {!p.archivedAt && (
+            <button
+              type="button"
+              className={menuItemClass}
+              onClick={() => {
+                setOpenMenuId(null);
                 openEdit(p);
               }}
             >
@@ -366,7 +390,16 @@ export default function AdminProvidersPage() {
             </div>
           </div>
           {!p.archivedAt && (
-            <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => openBookingLink(p.id)}
+              >
+                <Link2 className="mr-1 h-4 w-4" />
+                Booking link
+              </Button>
               <Link href={`/admin/providers/${p.id}/availability`} className="block">
                 <Button variant="outline" size="sm" className="w-full">
                   <Calendar className="mr-1 h-4 w-4" />
@@ -404,12 +437,23 @@ export default function AdminProvidersPage() {
         <td className="px-4 py-3 text-right">
           <div className="flex items-center justify-end gap-1.5">
             {!p.archivedAt && (
-              <Link href={`/admin/providers/${p.id}/availability`}>
-                <Button variant="outline" size="sm" className="h-9 px-3">
-                  <Calendar className="mr-1 h-3.5 w-3.5" />
-                  Schedule
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-3"
+                  onClick={() => openBookingLink(p.id)}
+                >
+                  <Link2 className="mr-1 h-3.5 w-3.5" />
+                  Link
                 </Button>
-              </Link>
+                <Link href={`/admin/providers/${p.id}/availability`}>
+                  <Button variant="outline" size="sm" className="h-9 px-3">
+                    <Calendar className="mr-1 h-3.5 w-3.5" />
+                    Schedule
+                  </Button>
+                </Link>
+              </>
             )}
             {renderProviderActions(p, 'desktop')}
           </div>
@@ -452,10 +496,16 @@ export default function AdminProvidersPage() {
               </h1>
               <p className="mt-1 text-sm text-text-secondary">Your team members who deliver services</p>
             </div>
-            <Button onClick={openNew}>
-              <Plus className="mr-2 h-4 w-4" />
-              New provider
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => openBookingLink()} disabled={!locationId}>
+                <Link2 className="mr-2 h-4 w-4" />
+                Booking links
+              </Button>
+              <Button onClick={openNew}>
+                <Plus className="mr-2 h-4 w-4" />
+                New provider
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -600,6 +650,15 @@ export default function AdminProvidersPage() {
           </Button>
         </form>
       </SlideOver>
+
+      {locationId && (
+        <GenerateBookingLinkSlideOver
+          open={linkPanelOpen}
+          onOpenChange={setLinkPanelOpen}
+          locationId={locationId}
+          initialProviderId={linkProviderId}
+        />
+      )}
 
       <ConfirmDialog
         open={!!providerAction}

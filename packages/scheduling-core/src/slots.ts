@@ -115,14 +115,34 @@ export function generateAvailableSlots(input: SlotGenerationInput): TimeSlot[] {
   return slots;
 }
 
+/**
+ * Whether a customer can still cancel or reschedule.
+ * Full location cutoff (e.g. 24h) applies when the booking was made far enough ahead.
+ * If the customer booked inside that window (e.g. same-day), they may still change until minLeadHours before start.
+ */
 export function canReschedule(
   appointmentStartUtc: Date,
   cutoffHours: number,
+  minLeadHours = 1,
+  bookedAtUtc?: Date,
 ): boolean {
-  const cutoff = DateTime.fromJSDate(appointmentStartUtc, { zone: 'utc' }).minus({
-    hours: cutoffHours,
-  });
-  return DateTime.utc() < cutoff;
+  const start = DateTime.fromJSDate(appointmentStartUtc, { zone: 'utc' });
+  const now = DateTime.utc();
+  if (now >= start) return false;
+
+  const hoursUntil = start.diff(now, 'hours').hours;
+  if (hoursUntil <= minLeadHours) return false;
+
+  if (bookedAtUtc) {
+    const bookedAt = DateTime.fromJSDate(bookedAtUtc, { zone: 'utc' });
+    const hoursFromBookingToStart = start.diff(bookedAt, 'hours').hours;
+    if (cutoffHours <= 0 || hoursFromBookingToStart < cutoffHours) {
+      return true;
+    }
+  }
+
+  if (cutoffHours <= 0) return true;
+  return now < start.minus({ hours: cutoffHours });
 }
 
 export function intervalsOverlap(

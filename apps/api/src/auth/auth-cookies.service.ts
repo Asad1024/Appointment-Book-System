@@ -17,7 +17,7 @@ export class AuthCookiesService {
   }
 
   private cookieBase(): CookieOptions {
-    // Lax in dev so cookies work between localhost:3000 (web) and localhost:3001 (api).
+    // Lax in dev so cookies work between localhost:3002 (web) and localhost:3003 (api).
     const sameSite: CookieOptions['sameSite'] = this.isProd() ? 'strict' : 'lax';
     return {
       httpOnly: true,

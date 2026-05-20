@@ -1,9 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
-import { SiteHeader } from '@/components/shells/SiteHeader';
-import { SiteFooter } from '@/components/shells/SiteFooter';
-import { MainShell } from '@/components/layout/MainShell';
+import { SiteChrome } from '@/components/shells/SiteChrome';
 import { Providers } from '@/components/providers';
 import { PLATFORM } from '@/lib/brand';
 
@@ -31,9 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${inter.variable} ${display.variable}`} suppressHydrationWarning>
       <body className="flex min-h-screen flex-col">
         <Providers>
-          <SiteHeader />
-          <MainShell>{children}</MainShell>
-          <SiteFooter />
+          <SiteChrome>{children}</SiteChrome>
         </Providers>
       </body>
     </html>

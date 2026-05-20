@@ -46,8 +46,8 @@ pnpm dev
 
 | URL | Description |
 |-----|-------------|
-| http://localhost:3000 | Public web + admin |
-| http://localhost:3001/api/docs | Swagger API |
+| http://localhost:3002 | Public web + admin |
+| http://localhost:3003/api/docs | Swagger API |
 | admin@demo.com / admin123 | Demo admin login |
 
 ## Project structure
@@ -64,8 +64,10 @@ infrastructure/   Dockerfiles
 ## Integration examples
 
 ```
-http://localhost:3000/book?product=demo&source=my-app&returnUrl=https://example.com/thanks
-http://localhost:3000/embed/book?product=demo&source=footer
+http://localhost:3002/book?product=demo&source=my-app&returnUrl=https://example.com/thanks
+http://localhost:3002/book/john-smith/product-demo?org=demo-company
+http://localhost:3002/book/event?org=demo-company&serviceId=11111111-1111-4111-8111-111111111102&providerId=11111111-1111-4111-8111-111111111201
+http://localhost:3002/embed/book?product=demo&source=footer
 ```
 
 ## Documentation

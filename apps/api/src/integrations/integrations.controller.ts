@@ -78,7 +78,7 @@ export class IntegrationsController {
     @Query('error') error: string | undefined,
     @Res() res: Response,
   ) {
-    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
     if (error || !code || !state) {
       return res.redirect(`${webUrl}/provider/dashboard?calendar=error`);
     }

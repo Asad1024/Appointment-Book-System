@@ -28,6 +28,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAdminLocation } from '@/lib/admin-location-context';
 import { apiAuth } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { reminderEventLabel } from '@pkg/shared-types';
 
 type NotificationItem = {
   id: string;
@@ -67,8 +68,6 @@ type ChannelFilter = 'all' | 'email' | 'whatsapp';
 
 const EVENT_LABELS: Record<string, string> = {
   booking_confirmation: 'Booking confirmation',
-  reminder_24h: 'Reminder (24h)',
-  reminder_1h: 'Reminder (1h)',
   rescheduled: 'Rescheduled',
   cancelled: 'Cancelled',
   waitlist_available: 'Waitlist available',
@@ -78,7 +77,7 @@ const READ_STORAGE_KEY = 'slotwise_notifications_read_ids';
 const DELETED_STORAGE_KEY = 'slotwise_notifications_deleted_ids';
 
 function eventLabel(eventType: string) {
-  return EVENT_LABELS[eventType] ?? eventType.replace(/_/g, ' ');
+  return EVENT_LABELS[eventType] ?? reminderEventLabel(eventType);
 }
 
 function formatDateTime(value?: string | null) {

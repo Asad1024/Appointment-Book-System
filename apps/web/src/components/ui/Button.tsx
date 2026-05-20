@@ -35,21 +35,45 @@ export interface ButtonProps
   loading?: boolean;
 }
 
+/** Radix Slot requires exactly one element child (whitespace text nodes break asChild). */
+function getSlotChild(children: React.ReactNode): React.ReactElement {
+  const elements = React.Children.toArray(children).filter(React.isValidElement);
+  if (elements.length !== 1) {
+    throw new Error('Button with asChild must wrap exactly one React element.');
+  }
+  return elements[0];
+}
+
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, loading, children, disabled, ...props }, ref) => {
-    const Comp = asChild ? Slot : 'button';
+    const isDisabled = disabled || loading;
+
+    if (asChild) {
+      const { type: _type, disabled: _disabled, ...slotProps } = props;
+      return (
+        <Slot
+          className={cn(buttonVariants({ variant, size, className }))}
+          ref={ref}
+          {...slotProps}
+          {...(isDisabled ? { 'aria-disabled': true, tabIndex: -1 } : {})}
+        >
+          {getSlotChild(children)}
+        </Slot>
+      );
+    }
+
     return (
-      <Comp
+      <button
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
-        disabled={disabled || loading}
+        disabled={isDisabled}
         {...props}
       >
         {loading ? (
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
         ) : null}
         {children}
-      </Comp>
+      </button>
     );
   },
 );

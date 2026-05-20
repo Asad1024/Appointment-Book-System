@@ -6,13 +6,22 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AppointmentSource, AppointmentStatus, AuditAction } from '@pkg/shared-types';
+import {
+  AppointmentSource,
+  AppointmentStatus,
+  AuditAction,
+  buildReminderScheduleForAppointment,
+  parseReminderOffsetsJson,
+  parseRemindersSentJson,
+} from '@pkg/shared-types';
 import { canReschedule } from '@pkg/scheduling-core';
 import { randomBytes } from 'crypto';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ReminderConfigService } from '../notifications/reminder-config.service';
 import { WebhookService } from '../integration/webhook.service';
+import { buildAppointmentWebhookPayload } from '../integration/appointment-webhook-payload';
 import { BookingValidationService } from './booking-validation.service';
 import { AvailabilityService } from '../availability/availability.service';
 import { EmailService } from '../notifications/email.service';
@@ -60,6 +69,7 @@ export class AppointmentsService {
     private calendarSync: CalendarSyncService,
     private intakeValidation: IntakeValidationService,
     private appointmentNotes: AppointmentNotesService,
+    private reminderConfig: ReminderConfigService,
   ) {}
 
   private generateManageToken(): string {
@@ -143,7 +153,12 @@ export class AppointmentsService {
 
     const startUtc = new Date(dto.startUtc);
     let providerId = dto.providerId;
-    let location: { id: string; timezone: string; cancellationCutoffH: number };
+    let location: {
+      id: string;
+      timezone: string;
+      cancellationCutoffH: number;
+      reminderOffsetsMinutes: string;
+    };
     let service: {
       id: string;
       durationMinutes: number;
@@ -211,13 +226,61 @@ export class AppointmentsService {
       const result = await this.prisma.$transaction(async (tx) => {
         await this.validation.assertNoOverlap(tx, providerId, startUtc, endUtc);
 
+        const existingCustomer = await tx.customer.findUnique({
+          where: { email: dto.customerEmail.toLowerCase() },
+        });
+
+        const snapshotOffsets = this.reminderConfig.resolveOffsetsForBooking({
+          location,
+          appointmentStartUtc: startUtc,
+          customer: existingCustomer,
+          dto: {
+            remindersEnabled: dto.remindersEnabled,
+            reminderOffsetsMinutes: dto.reminderOffsetsMinutes,
+          },
+        });
+
+        const customerUpdate: {
+          name: string;
+          phone: string;
+          remindersEnabled?: boolean;
+          reminderOffsetsMinutes?: string | null;
+        } = {
+          name: dto.customerName,
+          phone: dto.customerPhone.trim(),
+        };
+        if (dto.remindersEnabled !== undefined || dto.reminderOffsetsMinutes !== undefined) {
+          customerUpdate.remindersEnabled = dto.remindersEnabled ?? true;
+          if (dto.reminderOffsetsMinutes !== undefined) {
+            const chosen = this.reminderConfig.validateOffsets(dto.reminderOffsetsMinutes, {
+              allowEmpty: true,
+            });
+            customerUpdate.reminderOffsetsMinutes =
+              chosen.length > 0
+                ? this.reminderConfig.offsetsForStorage(
+                    this.reminderConfig.resolveOffsetsForBooking({
+                      location,
+                      appointmentStartUtc: startUtc,
+                      customer: null,
+                      dto: { reminderOffsetsMinutes: chosen },
+                    }),
+                  )
+                : null;
+          }
+        }
+
         const customer = await tx.customer.upsert({
-          where: { email: dto.customerEmail },
-          update: { name: dto.customerName, phone: dto.customerPhone.trim() },
+          where: { email: dto.customerEmail.toLowerCase() },
+          update: customerUpdate,
           create: {
             name: dto.customerName,
-            email: dto.customerEmail,
+            email: dto.customerEmail.toLowerCase(),
             phone: dto.customerPhone.trim(),
+            remindersEnabled: dto.remindersEnabled ?? true,
+            reminderOffsetsMinutes:
+              dto.reminderOffsetsMinutes !== undefined
+                ? customerUpdate.reminderOffsetsMinutes
+                : null,
           },
         });
 
@@ -242,6 +305,7 @@ export class AppointmentsService {
             metadata: dto.metadata,
             idempotencyKey: dto.idempotencyKey,
             manageToken: this.generateManageToken(),
+            reminderOffsetsMinutes: this.reminderConfig.offsetsForStorage(snapshotOffsets),
             notes: dto.notes,
             paymentStatus: payment.required
               ? payment.waived
@@ -292,18 +356,10 @@ export class AppointmentsService {
         this.logger.warn(`Booking confirmation notification failed for ${result.id}`, e);
       }
 
-      void this.webhooks.dispatchAppointmentBooked(org.id, {
-        appointmentId: result.id,
-        customerEmail: result.customer.email,
-        customerName: result.customer.name,
-        service: result.service.name,
-        provider: result.provider.name,
-        startUtc: result.startUtc,
-        product: result.product,
-        campaign: result.campaign,
-        source: result.source,
-        returnUrl: result.returnUrl,
-      });
+      void this.webhooks.dispatchAppointmentBooked(
+        org.id,
+        buildAppointmentWebhookPayload(result, { returnUrl: result.returnUrl }),
+      );
 
       this.realtime.emit(org.id, {
         type: 'appointment.created',
@@ -385,7 +441,7 @@ export class AppointmentsService {
       where: { id: params.locationId },
       include: { organization: true, services: { where: { id: params.serviceId }, take: 1 } },
     });
-    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
     const orgSlug = loc?.organization.slug ?? 'demo-company';
     const serviceName = loc?.services[0]?.name ?? 'your service';
     const bookUrl = new URL('/book', webUrl);
@@ -444,7 +500,86 @@ export class AppointmentsService {
     }
   }
 
-  async getByManageToken(token: string) {
+  private mapManageAppointmentView(appt: {
+    id: string;
+    createdAt: Date;
+    startUtc: Date;
+    endUtc: Date;
+    timezone: string;
+    customerTimezone: string | null;
+    status: string;
+    rescheduleCount: number;
+    manageToken: string;
+    locationId: string;
+    serviceId: string;
+    providerId: string;
+    notes: string | null;
+    reminderOffsetsMinutes: string;
+    remindersSentMinutes: string;
+    service: { name: string; description: string | null; durationMinutes: number };
+    provider: { name: string };
+    customer: { name: string; email: string };
+    location: {
+      name: string;
+      address: string | null;
+      phone: string | null;
+      cancellationCutoffH: number;
+    };
+    review?: { rating: number; comment: string | null; customerName: string; createdAt: Date } | null;
+  }) {
+    const reminderOffsets = parseReminderOffsetsJson(appt.reminderOffsetsMinutes, []);
+    const remindersSent = parseRemindersSentJson(appt.remindersSentMinutes);
+
+    return {
+      id: appt.id,
+      startUtc: appt.startUtc.toISOString(),
+      endUtc: appt.endUtc.toISOString(),
+      timezone: appt.timezone,
+      customerTimezone: appt.customerTimezone,
+      status: appt.status,
+      rescheduleCount: appt.rescheduleCount,
+      manageToken: appt.manageToken,
+      locationId: appt.locationId,
+      serviceId: appt.serviceId,
+      providerId: appt.providerId,
+      notes: appt.notes,
+      remindersEnabled: reminderOffsets.length > 0,
+      reminders: buildReminderScheduleForAppointment({
+        startUtc: appt.startUtc,
+        reminderOffsetsMinutes: reminderOffsets,
+        remindersSentMinutes: remindersSent,
+      }),
+      canCancelOrReschedule: canReschedule(
+        appt.startUtc,
+        appt.location.cancellationCutoffH,
+        1,
+        appt.createdAt,
+      ),
+      service: {
+        name: appt.service.name,
+        description: appt.service.description,
+        durationMinutes: appt.service.durationMinutes,
+      },
+      provider: { name: appt.provider.name },
+      customer: { name: appt.customer.name, email: appt.customer.email },
+      location: {
+        name: appt.location.name,
+        address: appt.location.address,
+        phone: appt.location.phone,
+        cancellationCutoffH: appt.location.cancellationCutoffH,
+      },
+      review: appt.review
+        ? {
+            rating: appt.review.rating,
+            comment: appt.review.comment,
+            customerName: appt.review.customerName,
+            createdAt: appt.review.createdAt.toISOString(),
+          }
+        : null,
+    };
+  }
+
+  private async findAppointmentByManageToken(token: string) {
     const appt = await this.prisma.appointment.findUnique({
       where: { manageToken: token },
       include: {
@@ -459,8 +594,13 @@ export class AppointmentsService {
     return appt;
   }
 
+  async getByManageToken(token: string) {
+    const appt = await this.findAppointmentByManageToken(token);
+    return this.mapManageAppointmentView(appt);
+  }
+
   async getIcsByManageToken(token: string): Promise<{ filename: string; content: string }> {
-    const appt = await this.getByManageToken(token);
+    const appt = await this.findAppointmentByManageToken(token);
     const content = buildIcsContent(calendarEventFromAppointment(appt));
     const safeName = appt.service.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'appointment';
     return { filename: `${safeName}.ics`, content };
@@ -475,12 +615,12 @@ export class AppointmentsService {
   }
 
   async cancel(token: string) {
-    const appt = await this.getByManageToken(token);
-    if (!canReschedule(appt.startUtc, appt.location.cancellationCutoffH)) {
+    const appt = await this.findAppointmentByManageToken(token);
+    if (!canReschedule(appt.startUtc, appt.location.cancellationCutoffH, 1, appt.createdAt)) {
       throw new BadRequestException('Cancellation cutoff has passed');
     }
     if (appt.status === AppointmentStatus.CANCELLED) {
-      return appt;
+      return this.mapManageAppointmentView(appt);
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -501,17 +641,21 @@ export class AppointmentsService {
     await this.notifications.enqueueCancellation(updated.id);
     await this.notifyWaitlist(updated);
     this.emitAppointmentUpdated(updated.organizationId, updated.id, 'appointment.cancelled');
+    void this.webhooks.dispatchAppointmentCancelled(
+      updated.organizationId,
+      buildAppointmentWebhookPayload(updated),
+    );
     void this.calendarSync.onAppointmentCancelled(updated.id);
-    return updated;
+    return this.mapManageAppointmentView(updated);
   }
 
   async reschedule(token: string, startUtc: string) {
-    const appt = await this.getByManageToken(token);
+    const appt = await this.findAppointmentByManageToken(token);
 
     if (appt.rescheduleCount >= 3) {
       throw new BadRequestException('Maximum reschedules reached');
     }
-    if (!canReschedule(appt.startUtc, appt.location.cancellationCutoffH)) {
+    if (!canReschedule(appt.startUtc, appt.location.cancellationCutoffH, 1, appt.createdAt)) {
       throw new BadRequestException('Reschedule cutoff has passed');
     }
 
@@ -575,8 +719,16 @@ export class AppointmentsService {
         });
       }
       this.emitAppointmentUpdated(updated.organizationId, updated.id, 'appointment.updated');
+      if (previousStartUtc.getTime() !== newStart.getTime()) {
+        void this.webhooks.dispatchAppointmentRescheduled(
+          updated.organizationId,
+          buildAppointmentWebhookPayload(updated, {
+            previousStartUtc: previousStartUtc.toISOString(),
+          }),
+        );
+      }
       void this.calendarSync.onAppointmentUpdated(updated.id);
-      return updated;
+      return this.mapManageAppointmentView(updated);
     } catch (e) {
       if (e instanceof ConflictException) throw e;
       if (e instanceof Prisma.PrismaClientKnownRequestError) {
@@ -664,6 +816,15 @@ export class AppointmentsService {
         });
       }
       this.emitAppointmentUpdated(updated.organizationId, updated.id, 'appointment.updated');
+      if (previousStartUtc.getTime() !== newStart.getTime()) {
+        void this.webhooks.dispatchAppointmentRescheduled(
+          updated.organizationId,
+          buildAppointmentWebhookPayload(updated, {
+            previousStartUtc: previousStartUtc.toISOString(),
+            rescheduledByAdmin: true,
+          }),
+        );
+      }
       void this.calendarSync.onAppointmentUpdated(updated.id);
       return updated;
     } catch (e) {
@@ -724,6 +885,10 @@ export class AppointmentsService {
       await this.notifications.enqueueCancellation(updated.id);
       await this.notifyWaitlist(updated);
       this.emitAppointmentUpdated(organizationId, updated.id, 'appointment.cancelled');
+      void this.webhooks.dispatchAppointmentCancelled(
+        organizationId,
+        buildAppointmentWebhookPayload(updated, { cancelledByAdmin: true }),
+      );
       void this.calendarSync.onAppointmentCancelled(updated.id);
     } else {
       this.emitAppointmentUpdated(organizationId, updated.id, 'appointment.updated');

@@ -65,6 +65,29 @@ export class CatalogController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...MANAGER_ROLES, UserRole.PROVIDER)
+  @Get('staff/booking-link-options')
+  listBookingLinkOptions(
+    @Req() req: { user: AuthUser },
+    @Query('locationId') locationId: string,
+  ) {
+    if (!locationId) {
+      throw new ForbiddenException('locationId is required');
+    }
+    const restrictProviderId =
+      req.user.role === UserRole.PROVIDER ? req.user.providerId ?? undefined : undefined;
+    if (req.user.role === UserRole.PROVIDER && !restrictProviderId) {
+      throw new ForbiddenException('No provider profile linked to this account');
+    }
+    return this.catalog.listBookingLinkOptions(
+      req.user.orgId,
+      locationId,
+      restrictProviderId,
+    );
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...MANAGER_ROLES)
   @Get('admin/services')
   adminListServices(

@@ -17,9 +17,9 @@ pnpm db:seed
 pnpm dev
 ```
 
-- Web: http://localhost:3000
-- API: http://localhost:3001
-- Swagger: http://localhost:3001/api/docs
+- Web: http://localhost:3002
+- API: http://localhost:3003
+- Swagger: http://localhost:3003/api/docs
 
 ## Production deploy
 

@@ -9,21 +9,40 @@ import { PageTransition } from '@/components/motion/PageTransition';
 import { CustomerLayout } from '@/components/shells/CustomerLayout';
 import { PageShell } from '@/components/layout/PageShell';
 import { Card, CardBody } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { AnimatedCheckmark } from '@/components/shared/AnimatedCheckmark';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthUser } from '@/lib/useAuthUser';
+
+type BookedResult = {
+  id: string;
+  manageToken: string;
+  status: string;
+};
+
+function cacheKey(sessionId: string) {
+  return `book-complete:${sessionId}`;
+}
+
+function readCachedResult(sessionId: string): BookedResult | null {
+  try {
+    const raw = sessionStorage.getItem(cacheKey(sessionId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as BookedResult;
+    if (parsed?.id && parsed?.manageToken) return parsed;
+  } catch {
+    sessionStorage.removeItem(cacheKey(sessionId));
+  }
+  return null;
+}
 
 function CompleteContent() {
   const search = useSearchParams();
   const sessionId = search.get('session_id');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<{
-    id: string;
-    manageToken: string;
-    status: string;
-  } | null>(null);
+  const [result, setResult] = useState<BookedResult | null>(null);
 
   useEffect(() => {
     if (!sessionId) {
@@ -32,19 +51,23 @@ function CompleteContent() {
       return;
     }
 
+    const cached = readCachedResult(sessionId);
+    if (cached) {
+      setResult(cached);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     void (async () => {
       try {
         await ensureCsrf();
-        const booked = await api<{
-          id: string;
-          manageToken: string;
-          status: string;
-        }>('/appointments/book/checkout-complete', {
+        const booked = await api<BookedResult>('/appointments/book/checkout-complete', {
           method: 'POST',
           body: JSON.stringify({ sessionId }),
         });
         if (cancelled) return;
+        sessionStorage.setItem(cacheKey(sessionId), JSON.stringify(booked));
         setResult(booked);
         toast.success('Appointment booked successfully');
       } catch (e) {
@@ -77,9 +100,9 @@ function CompleteContent() {
       <Card className="mx-auto max-w-lg">
         <CardBody className="py-12 text-center">
           <p className="text-red-600">{error}</p>
-          <Button className="mt-6" asChild>
-            <Link href="/book">Back to booking</Link>
-          </Button>
+          <Link href="/book" className={cn(buttonVariants(), 'mt-6 inline-flex')}>
+            Back to booking
+          </Link>
         </CardBody>
       </Card>
     );
@@ -95,9 +118,12 @@ function CompleteContent() {
         <p className="mt-2 text-sm text-text-secondary">
           Payment received. Your appointment is {result.status}.
         </p>
-        <Button className="mt-8" asChild>
-          <Link href={`/manage/${result.manageToken}`}>View appointment</Link>
-        </Button>
+        <Link
+          href={`/manage/${result.manageToken}`}
+          className={cn(buttonVariants(), 'mt-8 inline-flex')}
+        >
+          View appointment
+        </Link>
       </CardBody>
     </Card>
   );

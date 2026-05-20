@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { NotificationStatus, NotificationType } from '@pkg/shared-types';
+import {
+  NotificationStatus,
+  NotificationType,
+  reminderLogType,
+} from '@pkg/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from './email.service';
 import { UnipileWhatsAppService } from '../integrations/unipile-whatsapp.service';
@@ -18,6 +22,7 @@ import {
 
 const SUPPORTED_TYPES = new Set<string>([
   NotificationType.BOOKING_CONFIRMATION,
+  NotificationType.REMINDER,
   NotificationType.REMINDER_24H,
   NotificationType.REMINDER_1H,
   NotificationType.RESCHEDULED,
@@ -34,6 +39,15 @@ export class NotificationSenderService {
     private whatsapp: UnipileWhatsAppService,
   ) {}
 
+  private logTypeForJob(job: NotificationJob): string {
+    if (job.type === NotificationType.REMINDER && job.reminderMinutesBefore) {
+      return reminderLogType(job.reminderMinutesBefore);
+    }
+    if (job.type === NotificationType.REMINDER_24H) return reminderLogType(1440);
+    if (job.type === NotificationType.REMINDER_1H) return reminderLogType(60);
+    return job.type;
+  }
+
   async send(job: NotificationJob): Promise<void> {
     const { appointmentId, type } = job;
     const appt = await this.prisma.appointment.findUnique({
@@ -47,7 +61,23 @@ export class NotificationSenderService {
       return;
     }
 
-    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
+    const logType = this.logTypeForJob(job);
+    const reminderOpts =
+      type === NotificationType.REMINDER ||
+      type === NotificationType.REMINDER_24H ||
+      type === NotificationType.REMINDER_1H
+        ? {
+            reminderMinutesBefore:
+              job.reminderMinutesBefore ??
+              (type === NotificationType.REMINDER_24H
+                ? 1440
+                : type === NotificationType.REMINDER_1H
+                  ? 60
+                  : undefined),
+          }
+        : undefined;
+
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
     const manageUrl = `${webUrl}/manage/${appt.manageToken}`;
     const adminAppointmentUrl = `${webUrl}/admin/appointments/${appt.id}`;
     const calEvent = calendarEventFromAppointment(appt);
@@ -71,10 +101,10 @@ export class NotificationSenderService {
       adminAppointmentUrl,
     };
 
-    const customerMail = appointmentEmail(type, data);
+    const customerMail = appointmentEmail(type, data, reminderOpts);
     await this.deliverEmail(
       appointmentId,
-      type,
+      logType,
       appt.customer.email,
       customerMail.subject,
       customerMail.html,
@@ -82,8 +112,8 @@ export class NotificationSenderService {
 
     const customerPhone = appt.customer.phone?.trim();
     if (customerPhone) {
-      const waText = appointmentWhatsAppMessage(type, data);
-      await this.deliverWhatsApp(appointmentId, type, customerPhone, waText);
+      const waText = appointmentWhatsAppMessage(type, data, reminderOpts);
+      await this.deliverWhatsApp(appointmentId, logType, customerPhone, waText);
     } else {
       this.logger.warn(`No customer phone for appointment ${appointmentId}; skipped WhatsApp`);
     }
@@ -99,10 +129,10 @@ export class NotificationSenderService {
       return;
     }
 
-    const providerMail = providerAppointmentEmail(type, data);
+    const providerMail = providerAppointmentEmail(type, data, reminderOpts);
     await this.deliverEmail(
       appointmentId,
-      `${type}:provider`,
+      `${logType}:provider`,
       providerEmail,
       providerMail.subject,
       providerMail.html,

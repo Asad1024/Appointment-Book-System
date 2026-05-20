@@ -20,6 +20,7 @@ export type OrgLocation = {
   cancellationCutoffH: number;
   leadTimeMinutes: number;
   bookingWindowDays: number;
+  reminderOffsetsMinutes?: number[] | string;
 };
 
 type Props = {

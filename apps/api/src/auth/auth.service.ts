@@ -9,7 +9,8 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { randomBytes, createHash } from 'crypto';
 import { Response } from 'express';
-import { STAFF_ROLES, UserRole } from '@pkg/shared-types';
+import { STAFF_ROLES, UserRole, parseReminderOffsetsJson } from '@pkg/shared-types';
+import { ReminderConfigService } from '../notifications/reminder-config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../notifications/email.service';
 import { emailVerificationEmail, passwordResetEmail } from '../notifications/templates';
@@ -27,6 +28,7 @@ export class AuthService {
     private jwt: JwtService,
     private cookies: AuthCookiesService,
     private email: EmailService,
+    private reminderConfig: ReminderConfigService,
   ) {}
 
   private userResponse(user: {
@@ -112,7 +114,7 @@ export class AuthService {
       return created;
     });
 
-    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
     const { subject, html } = emailVerificationEmail({
       name: dto.name,
       verifyUrl: `${webUrl}/verify-email?token=${verifyToken}`,
@@ -144,7 +146,7 @@ export class AuthService {
       },
     });
 
-    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
     const { subject, html } = emailVerificationEmail({
       name: user.name,
       verifyUrl: `${webUrl}/verify-email?token=${verifyToken}`,
@@ -192,7 +194,7 @@ export class AuthService {
           passwordResetExpires: expires,
         },
       });
-      const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
+      const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
       const { subject, html } = passwordResetEmail({
         resetUrl: `${webUrl}/reset-password?token=${token}`,
       });
@@ -244,7 +246,24 @@ export class AuthService {
         'Please verify your email before accessing your account.',
       );
     }
-    return this.userResponse(user);
+    const base = this.userResponse(user);
+    if (user.role !== UserRole.CUSTOMER) return base;
+
+    const customer = await this.prisma.customer.findFirst({
+      where: { OR: [{ userId: user.id }, { email: user.email }] },
+    });
+
+    return {
+      ...base,
+      reminderPreferences: customer
+        ? {
+            remindersEnabled: customer.remindersEnabled,
+            reminderOffsetsMinutes: customer.reminderOffsetsMinutes
+              ? parseReminderOffsetsJson(customer.reminderOffsetsMinutes, [])
+              : null,
+          }
+        : { remindersEnabled: true, reminderOffsetsMinutes: null },
+    };
   }
 
   async updateMe(userId: string, dto: UpdateProfileDto) {
@@ -261,7 +280,39 @@ export class AuthService {
     }
 
     const updated = await this.prisma.user.update({ where: { id: userId }, data });
-    return this.userResponse(updated);
+
+    if (
+      user.role === UserRole.CUSTOMER &&
+      (dto.remindersEnabled !== undefined || dto.reminderOffsetsMinutes !== undefined)
+    ) {
+      const customerUpdate: {
+        remindersEnabled?: boolean;
+        reminderOffsetsMinutes?: string | null;
+      } = {};
+      if (dto.remindersEnabled !== undefined) {
+        customerUpdate.remindersEnabled = dto.remindersEnabled;
+      }
+      if (dto.reminderOffsetsMinutes !== undefined) {
+        const chosen = this.reminderConfig.validateOffsets(dto.reminderOffsetsMinutes, {
+          allowEmpty: true,
+        });
+        customerUpdate.reminderOffsetsMinutes =
+          chosen.length > 0 ? this.reminderConfig.offsetsForStorage(chosen) : null;
+      }
+      await this.prisma.customer.upsert({
+        where: { email: user.email },
+        update: customerUpdate,
+        create: {
+          email: user.email,
+          name: updated.name,
+          userId: user.id,
+          remindersEnabled: dto.remindersEnabled ?? true,
+          reminderOffsetsMinutes: customerUpdate.reminderOffsetsMinutes ?? null,
+        },
+      });
+    }
+
+    return this.getMe(userId);
   }
 
   async getCustomerAppointments(userId: string, query: { page?: number; limit?: number }) {

@@ -9,6 +9,7 @@ export type ProviderProfile = {
   id: string;
   name: string;
   email?: string | null;
+  locationId: string;
   location?: { name: string; timezone: string };
 };
 

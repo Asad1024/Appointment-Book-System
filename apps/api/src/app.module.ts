@@ -17,6 +17,7 @@ import { ReportsModule } from './reports/reports.module';
 import { HealthModule } from './health/health.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { IntegrationModule } from './integration/integration.module';
+import { PartnerModule } from './partner/partner.module';
 import { TeamModule } from './team/team.module';
 import { SettingsModule } from './settings/settings.module';
 import { BillingModule } from './billing/billing.module';
@@ -28,8 +29,11 @@ import { GlobalHttpExceptionFilter } from './common/http-exception.filter';
 
 const syncNotifications = process.env.USE_SYNC_NOTIFICATIONS === 'true';
 
-const apiRoot = join(__dirname, '..', '..');
-const envFiles = [join(apiRoot, '.env'), join(apiRoot, '..', '..', '.env')].filter(existsSync);
+// apps/api/.env first, then repo root — later files override (root wins for shared keys)
+const envFiles = [
+  join(process.cwd(), '.env'),
+  join(process.cwd(), '..', '..', '.env'),
+].filter(existsSync);
 
 const infrastructureImports = [
   ConfigModule.forRoot({
@@ -63,6 +67,7 @@ const infrastructureImports = [
     HealthModule,
     IntegrationsModule,
     IntegrationModule,
+    PartnerModule,
     TeamModule,
     SettingsModule,
     BillingModule,

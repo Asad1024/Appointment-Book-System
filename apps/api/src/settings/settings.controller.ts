@@ -29,6 +29,8 @@ export class SettingsController {
       logoUrl?: string;
       primaryColor?: string;
       bookingCurrency?: string;
+      webhookUrl?: string | null;
+      webhookSecret?: string | null;
     },
   ) {
     return this.settings.updateOrganization(req.user.orgId, body);
@@ -63,6 +65,7 @@ export class SettingsController {
       cancellationCutoffH?: number;
       leadTimeMinutes?: number;
       bookingWindowDays?: number;
+      reminderOffsetsMinutes?: number[];
     },
   ) {
     return this.settings.updateLocation(req.user.orgId, locationId, body);

@@ -92,7 +92,7 @@ export class BillingService {
       throw new BadRequestException('Stripe is not configured');
     }
 
-    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
     const url = await this.stripe.createProCheckoutSession({
       organizationId,
       customerEmail: actorEmail,

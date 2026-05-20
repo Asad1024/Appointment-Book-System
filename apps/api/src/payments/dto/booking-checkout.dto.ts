@@ -67,4 +67,8 @@ export class BookingCheckoutDto {
   @IsOptional()
   @IsString()
   intakeResponses?: string;
+
+  @IsOptional()
+  @IsString()
+  metadata?: string;
 }

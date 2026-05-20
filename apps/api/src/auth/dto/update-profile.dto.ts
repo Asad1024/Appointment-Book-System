@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()
@@ -14,4 +14,13 @@ export class UpdateProfileDto {
   @IsString()
   @MinLength(6)
   newPassword?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  remindersEnabled?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  reminderOffsetsMinutes?: number[];
 }

@@ -30,8 +30,54 @@ model Organization {
   locations   Location[]
   users       User[]
   teamInvites TeamInvite[]
+  apiKeys                ApiKey[]
+  partnerBookingSessions PartnerBookingSession[]
 
   @@map("organizations")
+}
+
+// Short-lived partner booking links (Leads Reach, etc.) — no PII in URL.
+model PartnerBookingSession {
+  id             String    @id @default(uuid())
+  token          String    @unique
+  organizationId String    @map("organization_id")
+  expiresAt      DateTime  @map("expires_at")
+  usedAt         DateTime? @map("used_at")
+  ref            String?
+  returnUrl      String?   @map("return_url")
+  source         String    @default("partner")
+  customerName   String?   @map("customer_name")
+  customerEmail  String?   @map("customer_email")
+  customerPhone  String?   @map("customer_phone")
+  serviceId      String?   @map("service_id")
+  providerId     String?   @map("provider_id")
+  leadLabel      String?   @map("lead_label")
+  campaign       String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([organizationId, expiresAt])
+  @@map("partner_booking_sessions")
+}
+
+model ApiKey {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  name           String
+  keyPrefix      String    @map("key_prefix")
+  keyHash        String    @map("key_hash")
+  createdById    String?   @map("created_by_id")
+  lastUsedAt     DateTime? @map("last_used_at")
+  revokedAt      DateTime? @map("revoked_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, revokedAt])
+  @@index([keyPrefix])
+  @@map("api_keys")
 }
 
 model Location {
@@ -41,9 +87,10 @@ model Location {
   timezone            String   @default("UTC")
   address             String?
   phone               String?
-  cancellationCutoffH Int      @default(24) @map("cancellation_cutoff_h")
-  leadTimeMinutes     Int      @default(120) @map("lead_time_minutes")
-  bookingWindowDays   Int      @default(60) @map("booking_window_days")
+  cancellationCutoffH     Int     @default(24) @map("cancellation_cutoff_h")
+  leadTimeMinutes         Int     @default(120) @map("lead_time_minutes")
+  bookingWindowDays       Int     @default(60) @map("booking_window_days")
+  reminderOffsetsMinutes  String  @default("[1440,120,60,30]") @map("reminder_offsets_minutes")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
@@ -111,6 +158,7 @@ model Provider {
   id             String   @id @default(uuid())
   organizationId String   @map("organization_id")
   locationId     String   @map("location_id")
+  slug           String?  @map("slug")
   name           String
   email          String?
   bio            String?
@@ -128,6 +176,7 @@ model Provider {
   waitlist          Waitlist[]
   calendarConnection ProviderCalendarConnection?
 
+  @@unique([organizationId, slug])
   @@index([locationId, archivedAt])
   @@map("providers")
 }
@@ -152,6 +201,7 @@ model Service {
   id                  String   @id @default(uuid())
   organizationId      String   @map("organization_id")
   locationId          String   @map("location_id")
+  slug                String?  @map("slug")
   productKey          String?  @map("product_key")
   name                String
   description         String?
@@ -171,6 +221,7 @@ model Service {
   waitlist         Waitlist[]
   intakeFields     IntakeField[]
 
+  @@unique([organizationId, slug])
   @@index([locationId, archivedAt])
   @@map("services")
 }
@@ -243,13 +294,15 @@ model BlockedTime {
 }
 
 model Customer {
-  id        String   @id @default(uuid())
-  userId    String?  @unique @map("user_id")
-  name      String
-  email     String
-  phone     String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                     String   @id @default(uuid())
+  userId                 String?  @unique @map("user_id")
+  name                   String
+  email                  String
+  phone                  String?
+  remindersEnabled       Boolean  @default(true) @map("reminders_enabled")
+  reminderOffsetsMinutes String?  @map("reminder_offsets_minutes")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
   user         User?         @relation(fields: [userId], references: [id])
   appointments Appointment[]
@@ -278,10 +331,10 @@ model Appointment {
   metadata         String?
   idempotencyKey   String?   @unique @map("idempotency_key")
   manageToken      String    @unique @map("manage_token")
-  rescheduleCount  Int       @default(0) @map("reschedule_count")
-  reminderSent24h  Boolean   @default(false) @map("reminder_sent_24h")
-  reminderSent1h   Boolean   @default(false) @map("reminder_sent_1h")
-  notes            String?
+  rescheduleCount        Int     @default(0) @map("reschedule_count")
+  reminderOffsetsMinutes String  @default("[]") @map("reminder_offsets_minutes")
+  remindersSentMinutes   String  @default("[]") @map("reminders_sent_minutes")
+  notes                  String?
   paymentStatus    String    @default("not_required") @map("payment_status")
   stripePaymentIntentId String? @unique @map("stripe_payment_intent_id")
   amountPaidCents  Int?      @map("amount_paid_cents")

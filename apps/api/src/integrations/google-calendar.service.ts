@@ -146,7 +146,7 @@ export class GoogleCalendarService {
       `Customer: ${appt.customer.name}`,
       `Email: ${appt.customer.email}`,
       appt.notes ? `Notes: ${appt.notes}` : null,
-      `Manage: ${process.env.WEB_URL ?? 'http://localhost:3000'}/manage/${appt.manageToken}`,
+      `Manage: ${process.env.WEB_URL ?? 'http://localhost:3002'}/manage/${appt.manageToken}`,
     ]
       .filter(Boolean)
       .join('\n');

@@ -26,7 +26,7 @@ export class TeamService {
   ) {}
 
   private inviteAcceptUrl(token: string) {
-    const base = process.env.WEB_URL ?? 'http://localhost:3000';
+    const base = process.env.WEB_URL ?? 'http://localhost:3002';
     return `${base}/invite/${token}`;
   }
 

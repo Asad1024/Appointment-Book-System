@@ -30,6 +30,13 @@ import { StepIndicator } from '@/components/booking/StepIndicator';
 import { WizardStepNav } from '@/components/booking/WizardStepNav';
 import { cn } from '@/lib/utils';
 import { formatMoneyFromCents, normalizeBookingCurrency } from '@/lib/currency';
+import { ReminderPreferencesEditor } from '@/components/shared/ReminderPreferencesEditor';
+import {
+  DEFAULT_REMINDER_OFFSETS_MINUTES,
+  filterReminderOffsetsToAllowed,
+  getApplicableReminderOffsets,
+  pickReminderSelectionForAppointment,
+} from '@pkg/shared-types';
 
 type Location = {
   id: string;
@@ -37,6 +44,7 @@ type Location = {
   timezone: string;
   bookingWindowDays?: number;
   address?: string | null;
+  reminderOffsetsMinutes?: number[];
 };
 type IntakeField = {
   id: string;
@@ -66,6 +74,7 @@ type IntegrationContext = {
   location: Location;
   services: Service[];
   product: string | null;
+  reminderPresets?: { minutes: number; label: string }[];
 };
 
 export type BookingParams = {
@@ -75,6 +84,13 @@ export type BookingParams = {
   source?: string;
   campaign?: string;
   returnUrl?: string;
+  /** Partner tracking id (e.g. Leads Reach lead_123_deal_9) */
+  ref?: string;
+  customerName?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  /** Opened from external CRM — no logged-in prefill; minimal chrome */
+  partner?: boolean;
   embed?: boolean;
 };
 
@@ -129,6 +145,10 @@ export function BookingWizard({ params }: { params: BookingParams }) {
   const [paymentWaived, setPaymentWaived] = useState(false);
   const [intakeAnswers, setIntakeAnswers] = useState<Record<string, string>>({});
   const [intakeErrors, setIntakeErrors] = useState<Record<string, string>>({});
+  const [remindersEnabled, setRemindersEnabled] = useState(true);
+  const [reminderSelectedMinutes, setReminderSelectedMinutes] = useState<number[]>([
+    ...DEFAULT_REMINDER_OFFSETS_MINUTES,
+  ]);
 
   const locations = ctx?.locations ?? [];
   const hasLocationStep = locations.length > 1;
@@ -147,6 +167,14 @@ export function BookingWizard({ params }: { params: BookingParams }) {
     return base;
   }, [hasLocationStep, hasIntakeStep]);
   const selectedProvider = providers.find((p) => p.id === providerId);
+  const locationReminderDefaults =
+    selectedLocation?.reminderOffsetsMinutes ?? DEFAULT_REMINDER_OFFSETS_MINUTES;
+
+  const applicableReminderOffsets = useMemo(() => {
+    if (!startUtc) return [];
+    return getApplicableReminderOffsets(locationReminderDefaults, startUtc);
+  }, [startUtc, locationReminderDefaults]);
+
   const priceCents = selectedService?.priceCents ?? 0;
   const needsPayment = priceCents > 0;
   const bookingCurrency = normalizeBookingCurrency(ctx?.branding?.currency);
@@ -186,8 +214,30 @@ export function BookingWizard({ params }: { params: BookingParams }) {
     } catch {
       /* ignore */
     }
+
+    const prefillName = params.customerName?.trim() ?? '';
+    const prefillEmail = params.customerEmail?.trim() ?? '';
+    const prefillPhone = params.customerPhone?.trim() ?? '';
+    const hasUrlPrefill = Boolean(prefillName || prefillEmail || prefillPhone);
+
+    if (hasUrlPrefill) {
+      if (prefillName) setCustomerName(prefillName);
+      if (prefillEmail) setCustomerEmail(prefillEmail);
+      if (prefillPhone) setCustomerPhone(prefillPhone);
+      detailsForm.reset({
+        customerName: prefillName,
+        customerEmail: prefillEmail,
+        customerPhone: prefillPhone,
+      });
+    }
+
+    if (params.partner) {
+      return;
+    }
+
     fetchMe()
       .then((u) => {
+        if (hasUrlPrefill) return;
         setCustomerEmail(u.email);
         setCustomerName(u.name);
         detailsForm.reset({
@@ -195,6 +245,13 @@ export function BookingWizard({ params }: { params: BookingParams }) {
           customerEmail: u.email,
           customerPhone: '',
         });
+        const prefs = u.reminderPreferences;
+        if (prefs) {
+          setRemindersEnabled(prefs.remindersEnabled);
+          if (prefs.reminderOffsetsMinutes && prefs.reminderOffsetsMinutes.length > 0) {
+            setReminderSelectedMinutes(prefs.reminderOffsetsMinutes);
+          }
+        }
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -221,6 +278,14 @@ export function BookingWizard({ params }: { params: BookingParams }) {
   }, [step, serviceId, providerId, selectedDate, startUtc, customerTimezone, locationId]);
 
   useEffect(() => {
+    if (!startUtc) return;
+    setReminderSelectedMinutes((prev) =>
+      pickReminderSelectionForAppointment(applicableReminderOffsets, prev),
+    );
+    setRemindersEnabled(applicableReminderOffsets.length > 0);
+  }, [startUtc, applicableReminderOffsets]);
+
+  useEffect(() => {
     const initialLocId = params.locationId;
     loadContext(initialLocId)
       .then((c) => {
@@ -231,7 +296,9 @@ export function BookingWizard({ params }: { params: BookingParams }) {
           (multi ? '' : c.location.id);
         if (pick) {
           setLocationId(pick);
-          setTimezone(c.location.timezone);
+          const loc = c.locations.find((l) => l.id === pick) ?? c.location;
+          setTimezone(loc.timezone);
+          applyLocationReminderDefaults(loc);
           if (!multi && c.services.length === 1) {
             setServiceId(c.services[0].id);
           }
@@ -246,6 +313,17 @@ export function BookingWizard({ params }: { params: BookingParams }) {
       .catch((e) => setError(e.message));
   }, [org, params.product, params.locationId, loadContext]);
 
+  function applyLocationReminderDefaults(loc: Location) {
+    const defaults = loc.reminderOffsetsMinutes ?? [...DEFAULT_REMINDER_OFFSETS_MINUTES];
+    const applicable = startUtc
+      ? getApplicableReminderOffsets(defaults, startUtc)
+      : defaults;
+    setReminderSelectedMinutes((prev) =>
+      pickReminderSelectionForAppointment(applicable, prev.length > 0 ? prev : defaults),
+    );
+    setRemindersEnabled(applicable.length > 0);
+  }
+
   function selectLocation(loc: Location) {
     setLocationId(loc.id);
     setTimezone(loc.timezone);
@@ -254,6 +332,7 @@ export function BookingWizard({ params }: { params: BookingParams }) {
     setSelectedDate('');
     setStartUtc('');
     setError('');
+    applyLocationReminderDefaults(loc);
     loadContext(loc.id)
       .then((c) => {
         setCtx(c);
@@ -442,7 +521,12 @@ export function BookingWizard({ params }: { params: BookingParams }) {
           source: params.embed ? 'embed' : params.source ?? 'web',
           returnUrl: params.returnUrl,
           org,
-          metadata: JSON.stringify({ org, source: params.source, campaign: params.campaign }),
+          metadata: JSON.stringify({
+            org,
+            source: params.source,
+            campaign: params.campaign,
+            ref: params.ref,
+          }),
           intakeResponses: JSON.stringify(intakePayload()),
         }),
       });
@@ -493,6 +577,19 @@ export function BookingWizard({ params }: { params: BookingParams }) {
         return;
       }
 
+      const allowedReminders = getApplicableReminderOffsets(
+        locationReminderDefaults,
+        startUtc,
+      );
+      const effectiveReminderMinutes = remindersEnabled
+        ? filterReminderOffsetsToAllowed(reminderSelectedMinutes, allowedReminders)
+        : [];
+      if (remindersEnabled && allowedReminders.length > 0 && effectiveReminderMinutes.length === 0) {
+        setError('Select at least one reminder time, or turn reminders off.');
+        setStep(stepOffset + 3);
+        return;
+      }
+
       await ensureCsrf();
       const result = await api<Record<string, unknown>>('/appointments/book', {
         method: 'POST',
@@ -511,8 +608,16 @@ export function BookingWizard({ params }: { params: BookingParams }) {
           campaign: params.campaign,
           source: params.embed ? 'embed' : params.source ?? 'web',
           returnUrl: params.returnUrl,
-          metadata: JSON.stringify({ org, source: params.source, campaign: params.campaign }),
+          metadata: JSON.stringify({
+            org,
+            source: params.source,
+            campaign: params.campaign,
+            ref: params.ref,
+          }),
           intakeResponses: intakePayload(),
+          remindersEnabled:
+            allowedReminders.length > 0 ? remindersEnabled && effectiveReminderMinutes.length > 0 : false,
+          reminderOffsetsMinutes: effectiveReminderMinutes,
         }),
       });
       sessionStorage.removeItem(WIZARD_STORAGE_KEY);
@@ -594,7 +699,7 @@ export function BookingWizard({ params }: { params: BookingParams }) {
       {ctx?.branding.logoUrl && (
         <img src={ctx.branding.logoUrl} alt="" className="h-10 object-contain" />
       )}
-      {params.source && (
+      {params.source && !params.partner && (
         <p className="text-sm text-slate-500 dark:text-slate-400">
           Referred from <span className="font-medium text-slate-700 dark:text-slate-200">{params.source}</span>
         </p>
@@ -793,10 +898,16 @@ export function BookingWizard({ params }: { params: BookingParams }) {
                 <div>
                   <h2 className="font-display text-lg font-semibold">Your details</h2>
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    <Link href="/login" className="font-medium text-brand-600 hover:underline">
-                      Sign in
-                    </Link>{' '}
-                    to pre-fill, or continue as guest.
+                    {params.partner ? (
+                      'Your details were loaded from your CRM. You can edit them if needed.'
+                    ) : (
+                      <>
+                        <Link href="/login" className="font-medium text-brand-600 hover:underline">
+                          Sign in
+                        </Link>{' '}
+                        to pre-fill, or continue as guest.
+                      </>
+                    )}
                   </p>
                   <form className="mt-6 space-y-4" onSubmit={detailsForm.handleSubmit(onDetailsSubmit)}>
                     <div>
@@ -845,6 +956,28 @@ export function BookingWizard({ params }: { params: BookingParams }) {
                         We send confirmations by email and WhatsApp.
                       </p>
                     </div>
+                    {!startUtc ? (
+                      <p className="text-sm text-text-secondary">
+                        Select a date and time first to see reminder options.
+                      </p>
+                    ) : applicableReminderOffsets.length === 0 ? (
+                      <p className="text-sm text-text-secondary">
+                        This appointment is too soon for advance reminders. You will still get an
+                        immediate confirmation by email and WhatsApp.
+                      </p>
+                    ) : (
+                      <ReminderPreferencesEditor
+                        enabled={remindersEnabled}
+                        selectedMinutes={filterReminderOffsetsToAllowed(
+                          reminderSelectedMinutes,
+                          applicableReminderOffsets,
+                        )}
+                        allowedMinutes={applicableReminderOffsets}
+                        onEnabledChange={setRemindersEnabled}
+                        onSelectedChange={setReminderSelectedMinutes}
+                        description="Tap each time you want a reminder. Options depend on how soon your appointment starts."
+                      />
+                    )}
                   </form>
                   <WizardStepNav
                     onBack={goBack}

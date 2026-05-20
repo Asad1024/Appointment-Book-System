@@ -12,6 +12,7 @@ type Props = {
   onAddToGoogle: () => void;
   onDownloadIcs: () => void;
   canModify: boolean;
+  canChangeTime: boolean;
   reschedulesLeft: number;
 };
 
@@ -21,6 +22,7 @@ export function ManageAppointmentSidebar({
   onAddToGoogle,
   onDownloadIcs,
   canModify,
+  canChangeTime,
   reschedulesLeft,
 }: Props) {
   return (
@@ -36,7 +38,7 @@ export function ManageAppointmentSidebar({
             <CalendarPlus className="h-4 w-4" />
             Download .ics (Outlook / Apple)
           </Button>
-          {canModify && reschedulesLeft > 0 && (
+          {canChangeTime && reschedulesLeft > 0 && (
             <Button variant="outline" className="w-full justify-start gap-2" onClick={onReschedule}>
               <CalendarPlus className="h-4 w-4" />
               Reschedule

@@ -8,6 +8,28 @@ export {
   type BookingCurrencyCode,
 } from './currency';
 
+export {
+  ALLOWED_REMINDER_OFFSETS_MINUTES,
+  DEFAULT_REMINDER_OFFSETS_MINUTES,
+  REMINDER_CRON_WINDOW_MINUTES,
+  REMINDER_OFFSET_PRESETS,
+  filterReminderOffsetsToAllowed,
+  formatReminderOffsetLabel,
+  buildReminderScheduleForAppointment,
+  getApplicableReminderOffsets,
+  pickReminderSelectionForAppointment,
+  type ReminderScheduleItem,
+  type ReminderScheduleStatus,
+  REMINDER_MIN_LEAD_MINUTES,
+  normalizeReminderOffsets,
+  parseReminderOffsetsJson,
+  parseRemindersSentJson,
+  reminderEventLabel,
+  reminderLogType,
+  stringifyReminderOffsets,
+  type ReminderOffsetPreset,
+} from './reminders';
+
 export enum UserRole {
   SUPER_ADMIN = 'super_admin',
   ORG_ADMIN = 'org_admin',
@@ -91,8 +113,11 @@ export enum AuditAction {
 
 export enum NotificationType {
   BOOKING_CONFIRMATION = 'booking_confirmation',
+  /** @deprecated Use REMINDER + reminderMinutesBefore */
   REMINDER_24H = 'reminder_24h',
+  /** @deprecated Use REMINDER + reminderMinutesBefore */
   REMINDER_1H = 'reminder_1h',
+  REMINDER = 'reminder',
   RESCHEDULED = 'rescheduled',
   CANCELLED = 'cancelled',
   WAITLIST_AVAILABLE = 'waitlist_available',

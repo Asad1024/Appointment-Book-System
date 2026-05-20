@@ -20,7 +20,11 @@ export class CsrfMiddleware implements NestMiddleware {
     if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
       return next();
     }
-    if (req.path.startsWith('/health') || req.path === '/payments/webhook') {
+    if (
+      req.path.startsWith('/health') ||
+      req.path === '/payments/webhook' ||
+      req.path.startsWith('/partner/')
+    ) {
       return next();
     }
     try {

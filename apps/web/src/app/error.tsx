@@ -3,7 +3,8 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { AlertTriangle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { PLATFORM } from '@/lib/brand';
 
 export default function GlobalError({
@@ -29,8 +30,8 @@ export default function GlobalError({
       </p>
       <div className="mt-8 flex flex-wrap justify-center gap-3">
         <Button onClick={() => reset()}>Try again</Button>
-        <Link href="/">
-          <Button variant="outline">Go home</Button>
+        <Link href="/" className={cn(buttonVariants({ variant: 'outline' }))}>
+          Go home
         </Link>
       </div>
     </div>

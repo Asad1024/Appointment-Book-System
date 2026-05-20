@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3003';
 
 let csrfToken: string | null = null;
 let csrfPromise: Promise<string> | null = null;
@@ -112,6 +112,11 @@ export async function logout() {
   csrfToken = null;
 }
 
+export type ReminderPreferences = {
+  remindersEnabled: boolean;
+  reminderOffsetsMinutes: number[] | null;
+};
+
 export type AuthUser = {
   id: string;
   email: string;
@@ -119,6 +124,7 @@ export type AuthUser = {
   role: string;
   emailVerified: boolean;
   providerId?: string | null;
+  reminderPreferences?: ReminderPreferences;
 };
 
 export async function fetchMe(): Promise<AuthUser> {

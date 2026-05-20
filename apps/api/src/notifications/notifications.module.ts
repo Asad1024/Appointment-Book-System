@@ -3,6 +3,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { NotificationsService } from './notifications.service';
 import { NotificationsProcessor } from './notifications.processor';
 import { ReminderScheduler } from './reminder.scheduler';
+import { ReminderConfigService } from './reminder-config.service';
 import { EmailService } from './email.service';
 import { NotificationSenderService } from './notification-sender.service';
 import { IntegrationsModule } from '../integrations/integrations.module';
@@ -25,6 +26,7 @@ export class NotificationsModule {
       NotificationSenderService,
       NotificationsService,
       ReminderScheduler,
+      ReminderConfigService,
       ...(sync ? [] : [NotificationsProcessor]),
     ];
 
@@ -34,7 +36,7 @@ export class NotificationsModule {
       imports,
       controllers: [NotificationsController],
       providers,
-      exports: [NotificationsService, EmailService],
+      exports: [NotificationsService, EmailService, ReminderConfigService],
     };
   }
 }

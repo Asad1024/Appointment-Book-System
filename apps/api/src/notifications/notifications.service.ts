@@ -9,6 +9,8 @@ import { PrismaService } from '../prisma/prisma.service';
 export interface NotificationJob {
   appointmentId: string;
   type: NotificationType;
+  /** Minutes before start; required when type is REMINDER */
+  reminderMinutesBefore?: number;
 }
 
 type NotificationLogsQuery = {
@@ -65,9 +67,10 @@ export class NotificationsService {
 
   async enqueueReminder(
     appointmentId: string,
-    type: NotificationType = NotificationType.REMINDER_24H,
+    type: NotificationType = NotificationType.REMINDER,
+    reminderMinutesBefore?: number,
   ) {
-    await this.dispatch({ appointmentId, type });
+    await this.dispatch({ appointmentId, type, reminderMinutesBefore });
   }
 
   async listLogs(orgId: string, query: NotificationLogsQuery) {

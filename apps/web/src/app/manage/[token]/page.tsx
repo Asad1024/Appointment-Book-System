@@ -1,8 +1,9 @@
 'use client';
 
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
+import { formatInTimeZone } from 'date-fns-tz';
 import { ChevronRight, Home } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -17,6 +18,29 @@ import type { ManageAppointment, ReviewMeta } from './types';
 import type { SlotOption } from '@/components/shared/DateTimePicker';
 import { pageContainer } from '@/lib/layout';
 import { cn } from '@/lib/utils';
+
+const BOOKING_ACCENT = '#4f46e5';
+const DEFAULT_BOOKING_WINDOW_DAYS = 60;
+
+function initRescheduleSelection(appt: ManageAppointment) {
+  const displayTz = appt.customerTimezone ?? appt.timezone;
+  return {
+    customerTimezone: displayTz,
+    selectedDate: formatInTimeZone(new Date(appt.startUtc), displayTz, 'yyyy-MM-dd'),
+    startUtc: appt.startUtc,
+  };
+}
+
+function mergeSlotsWithCurrent(slots: SlotOption[], appt: ManageAppointment): SlotOption[] {
+  const currentMs = new Date(appt.startUtc).getTime();
+  const hasCurrent = slots.some(
+    (s) => Math.abs(new Date(s.startUtc).getTime() - currentMs) < 60_000,
+  );
+  if (hasCurrent) return slots;
+  return [...slots, { startUtc: appt.startUtc, endUtc: appt.endUtc }].sort(
+    (a, b) => new Date(a.startUtc).getTime() - new Date(b.startUtc).getTime(),
+  );
+}
 
 function calendarEventFromAppt(appt: ManageAppointment) {
   return {
@@ -43,8 +67,39 @@ function ManagePageContent() {
   const [selectedDate, setSelectedDate] = useState('');
   const [slots, setSlots] = useState<SlotOption[]>([]);
   const [newStartUtc, setNewStartUtc] = useState('');
+  const [customerTimezone, setCustomerTimezone] = useState('');
   const [reviewMeta, setReviewMeta] = useState<ReviewMeta | null>(null);
   const rescheduleRef = useRef<HTMLDivElement>(null);
+
+  const openRescheduleMode = useCallback(() => {
+    if (appt) {
+      const init = initRescheduleSelection(appt);
+      setCustomerTimezone(init.customerTimezone);
+      setSelectedDate(init.selectedDate);
+      setNewStartUtc(init.startUtc);
+    }
+    setRescheduleMode(true);
+  }, [appt]);
+
+  const closeRescheduleMode = useCallback(() => {
+    setRescheduleMode(false);
+    setSelectedDate('');
+    setNewStartUtc('');
+    setSlots([]);
+  }, []);
+
+  const displaySlots = useMemo(
+    () => (appt && rescheduleMode ? mergeSlotsWithCurrent(slots, appt) : slots),
+    [slots, appt, rescheduleMode],
+  );
+
+  const maxBookDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + DEFAULT_BOOKING_WINDOW_DAYS);
+    return d.toISOString().slice(0, 10);
+  }, []);
+
+  const minBookDate = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
     if (!token) return;
@@ -63,7 +118,16 @@ function ManagePageContent() {
 
   useEffect(() => {
     if (!appt || pageLoading) return;
-    if (searchParams.get('reschedule') === '1' && appt.status !== 'cancelled' && appt.status !== 'completed') {
+    if (
+      searchParams.get('reschedule') === '1' &&
+      appt.status !== 'cancelled' &&
+      appt.status !== 'completed' &&
+      appt.canCancelOrReschedule !== false
+    ) {
+      const init = initRescheduleSelection(appt);
+      setCustomerTimezone(init.customerTimezone);
+      setSelectedDate(init.selectedDate);
+      setNewStartUtc(init.startUtc);
       setRescheduleMode(true);
     }
     if (searchParams.get('review') === '1' && appt.status === 'completed') {
@@ -98,7 +162,7 @@ function ManagePageContent() {
         method: 'POST',
       });
       setAppt(updated);
-      setRescheduleMode(false);
+      closeRescheduleMode();
       setCancelOpen(false);
       toast.success('Appointment cancelled');
     } catch (e) {
@@ -118,9 +182,7 @@ function ManagePageContent() {
         body: JSON.stringify({ startUtc: newStartUtc }),
       });
       setAppt(updated);
-      setRescheduleMode(false);
-      setNewStartUtc('');
-      setSelectedDate('');
+      closeRescheduleMode();
       toast.success('Appointment rescheduled');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not reschedule');
@@ -140,6 +202,8 @@ function ManagePageContent() {
   }
 
   const canModify = appt ? appt.status !== 'cancelled' && appt.status !== 'completed' : false;
+  const canCancelOrReschedule = appt?.canCancelOrReschedule !== false;
+  const canChangeTime = canModify && canCancelOrReschedule;
   const reschedulesLeft = appt ? Math.max(0, 3 - appt.rescheduleCount) : 0;
 
   return (
@@ -198,12 +262,28 @@ function ManagePageContent() {
                 rescheduleMode={rescheduleMode}
                 rescheduleRef={rescheduleRef}
                 selectedDate={selectedDate}
-                slots={slots}
+                slots={displaySlots}
                 newStartUtc={newStartUtc}
-                onRescheduleMode={setRescheduleMode}
-                onDateChange={setSelectedDate}
+                customerTimezone={customerTimezone || appt.customerTimezone || appt.timezone}
+                onCustomerTimezoneChange={(tz) => {
+                  setCustomerTimezone(tz);
+                  const anchorUtc = newStartUtc || appt.startUtc;
+                  setSelectedDate(
+                    formatInTimeZone(new Date(anchorUtc), tz, 'yyyy-MM-dd'),
+                  );
+                }}
+                minBookDate={minBookDate}
+                maxBookDate={maxBookDate}
+                accentColor={BOOKING_ACCENT}
+                onRescheduleMode={openRescheduleMode}
+                onCloseReschedule={closeRescheduleMode}
+                onDateChange={(d) => {
+                  setSelectedDate(d);
+                  setNewStartUtc('');
+                }}
                 onSlotSelect={setNewStartUtc}
                 onReschedule={() => void reschedule()}
+                canChangeTime={canChangeTime}
                 onAddToGoogle={addToGoogleCalendar}
                 onDownloadIcs={downloadIcs}
                 onCancelClick={() => setCancelOpen(true)}
@@ -214,10 +294,11 @@ function ManagePageContent() {
             </div>
             <ManageAppointmentSidebar
               appt={appt}
-              onReschedule={() => setRescheduleMode(true)}
+              onReschedule={openRescheduleMode}
               onAddToGoogle={addToGoogleCalendar}
               onDownloadIcs={downloadIcs}
               canModify={canModify}
+              canChangeTime={canChangeTime}
               reschedulesLeft={reschedulesLeft}
             />
           </div>

@@ -72,7 +72,7 @@ export class PaymentsService {
       };
     }
 
-    const webUrl = process.env.WEB_URL ?? 'http://localhost:3000';
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
     const orgQ = dto.org ? `&org=${encodeURIComponent(dto.org)}` : '';
     const url = await this.stripe.createBookingCheckoutSession({
       amountCents: amount,
@@ -95,7 +95,7 @@ export class PaymentsService {
         campaign: dto.campaign ?? '',
         source: dto.source ?? 'web',
         returnUrl: (dto.returnUrl ?? '').slice(0, 400),
-        metadata: (dto as { metadata?: string }).metadata?.slice(0, 400) ?? '',
+        metadata: dto.metadata?.slice(0, 400) ?? '',
         intakeResponses: dto.intakeResponses?.slice(0, 4000) ?? '',
       },
     });

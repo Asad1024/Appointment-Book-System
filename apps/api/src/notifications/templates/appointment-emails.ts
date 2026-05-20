@@ -1,4 +1,4 @@
-import { NotificationType } from '@pkg/shared-types';
+import { NotificationType, formatReminderOffsetLabel } from '@pkg/shared-types';
 import { emailButton, emailCalendarLinks, emailHeading, emailLayout, emailParagraph } from './layout';
 
 export interface AppointmentEmailData {
@@ -51,13 +51,41 @@ function formatWhen(data: AppointmentEmailData): string {
   return when;
 }
 
+function reminderCopy(minutesBefore: number) {
+  const label = formatReminderOffsetLabel(minutesBefore);
+  return {
+    subject: `Reminder: appointment ${label}`,
+    heading: `Reminder: ${label}`,
+    intro: `This is a friendly reminder about your upcoming appointment (${label}).`,
+  };
+}
+
+function resolveCopy(
+  type: NotificationType,
+  reminderMinutesBefore?: number,
+): { subject: string; heading: string; intro: string } {
+  if (type === NotificationType.REMINDER && reminderMinutesBefore) {
+    return reminderCopy(reminderMinutesBefore);
+  }
+  if (type === NotificationType.REMINDER_24H) {
+    return reminderCopy(1440);
+  }
+  if (type === NotificationType.REMINDER_1H) {
+    return reminderCopy(60);
+  }
+  return {
+    subject: SUBJECTS[type] ?? 'Appointment update',
+    heading: HEADINGS[type] ?? 'Appointment update',
+    intro: INTROS[type] ?? 'Details for your appointment:',
+  };
+}
+
 export function appointmentEmail(
   type: NotificationType,
   data: AppointmentEmailData,
+  opts?: { reminderMinutesBefore?: number },
 ): { subject: string; html: string } {
-  const subject = SUBJECTS[type] ?? 'Appointment update';
-  const heading = HEADINGS[type] ?? 'Appointment update';
-  const intro = INTROS[type] ?? 'Details for your appointment:';
+  const { subject, heading, intro } = resolveCopy(type, opts?.reminderMinutesBefore);
 
   const body = [
     emailHeading(heading),
@@ -115,13 +143,39 @@ const PROVIDER_INTROS: Record<string, string> = {
 };
 
 /** Staff/provider copy — includes customer contact details. */
+function providerReminderCopy(minutesBefore: number) {
+  const label = formatReminderOffsetLabel(minutesBefore);
+  return {
+    subject: `Reminder: appointment ${label}`,
+    heading: `Upcoming appointment (${label})`,
+    intro: `Reminder about an appointment on your schedule (${label}).`,
+  };
+}
+
 export function providerAppointmentEmail(
   type: NotificationType,
   data: AppointmentEmailData,
+  opts?: { reminderMinutesBefore?: number },
 ): { subject: string; html: string } {
-  const subject = PROVIDER_SUBJECTS[type] ?? 'Appointment update';
-  const heading = PROVIDER_HEADINGS[type] ?? 'Appointment update';
-  const intro = PROVIDER_INTROS[type] ?? 'Appointment details:';
+  let subject = PROVIDER_SUBJECTS[type] ?? 'Appointment update';
+  let heading = PROVIDER_HEADINGS[type] ?? 'Appointment update';
+  let intro = PROVIDER_INTROS[type] ?? 'Appointment details:';
+  if (type === NotificationType.REMINDER && opts?.reminderMinutesBefore) {
+    const copy = providerReminderCopy(opts.reminderMinutesBefore);
+    subject = copy.subject;
+    heading = copy.heading;
+    intro = copy.intro;
+  } else if (type === NotificationType.REMINDER_24H) {
+    const copy = providerReminderCopy(1440);
+    subject = copy.subject;
+    heading = copy.heading;
+    intro = copy.intro;
+  } else if (type === NotificationType.REMINDER_1H) {
+    const copy = providerReminderCopy(60);
+    subject = copy.subject;
+    heading = copy.heading;
+    intro = copy.intro;
+  }
 
   const customerContact = [
     data.customerEmail ? `Email: ${data.customerEmail}` : '',

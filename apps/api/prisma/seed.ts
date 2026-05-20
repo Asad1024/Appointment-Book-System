@@ -25,6 +25,7 @@ function providerEmail(tag: string): string {
 const SERVICE_DEFS = [
   {
     id: '11111111-1111-4111-8111-111111111102',
+    slug: 'product-demo',
     name: 'Product Demo',
     productKey: 'demo',
     durationMinutes: 30,
@@ -33,6 +34,7 @@ const SERVICE_DEFS = [
   },
   {
     id: '11111111-1111-4111-8111-111111111103',
+    slug: 'discovery-call',
     name: 'Discovery Call',
     productKey: 'discovery',
     durationMinutes: 45,
@@ -40,6 +42,7 @@ const SERVICE_DEFS = [
   },
   {
     id: '11111111-1111-4111-8111-111111111104',
+    slug: 'technical-consultation',
     name: 'Technical Consultation',
     productKey: 'consulting',
     durationMinutes: 60,
@@ -47,6 +50,7 @@ const SERVICE_DEFS = [
   },
   {
     id: '11111111-1111-4111-8111-111111111105',
+    slug: 'support-check-in',
     name: 'Support Check-in',
     productKey: 'support',
     durationMinutes: 20,
@@ -54,6 +58,7 @@ const SERVICE_DEFS = [
   },
   {
     id: '11111111-1111-4111-8111-111111111106',
+    slug: 'onboarding-session',
     name: 'Onboarding Session',
     productKey: 'onboarding',
     durationMinutes: 45,
@@ -62,11 +67,11 @@ const SERVICE_DEFS = [
 ] as const;
 
 const PROVIDER_DEFS = [
-  { id: '11111111-1111-4111-8111-111111111201', name: 'John Smith', emailTag: 'john' },
-  { id: '11111111-1111-4111-8111-111111111202', name: 'Sara Johnson', emailTag: 'sara' },
-  { id: '11111111-1111-4111-8111-111111111203', name: 'Mike Garcia', emailTag: 'mike' },
-  { id: '11111111-1111-4111-8111-111111111204', name: 'Emma Wilson', emailTag: 'emma' },
-  { id: '11111111-1111-4111-8111-111111111205', name: 'Ali Chen', emailTag: 'ali' },
+  { id: '11111111-1111-4111-8111-111111111201', slug: 'john-smith', name: 'John Smith', emailTag: 'john' },
+  { id: '11111111-1111-4111-8111-111111111202', slug: 'sara-johnson', name: 'Sara Johnson', emailTag: 'sara' },
+  { id: '11111111-1111-4111-8111-111111111203', slug: 'mike-garcia', name: 'Mike Garcia', emailTag: 'mike' },
+  { id: '11111111-1111-4111-8111-111111111204', slug: 'emma-wilson', name: 'Emma Wilson', emailTag: 'emma' },
+  { id: '11111111-1111-4111-8111-111111111205', slug: 'ali-chen', name: 'Ali Chen', emailTag: 'ali' },
 ] as const;
 
 const prisma = new PrismaClient();
@@ -94,6 +99,8 @@ async function main() {
       allowedEmbedOrigins: JSON.stringify([
         'http://localhost:3000',
         'http://localhost:3001',
+        'http://localhost:3002',
+        'http://localhost:3003',
         'http://127.0.0.1:5500',
       ]),
     },
@@ -105,14 +112,18 @@ async function main() {
       allowedEmbedOrigins: JSON.stringify([
         'http://localhost:3000',
         'http://localhost:3001',
+        'http://localhost:3002',
+        'http://localhost:3003',
         'http://127.0.0.1:5500',
       ]),
     },
   });
 
+  const defaultReminderOffsets = '[1440,120,60,30]';
+
   const location = await prisma.location.upsert({
     where: { id: SEED_IDS.locationId },
-    update: {},
+    update: { reminderOffsetsMinutes: defaultReminderOffsets },
     create: {
       id: SEED_IDS.locationId,
       organizationId: org.id,
@@ -120,12 +131,13 @@ async function main() {
       timezone: 'America/New_York',
       address: '123 Business Ave, New York, NY',
       phone: '+1-555-0100',
+      reminderOffsetsMinutes: defaultReminderOffsets,
     },
   });
 
   const locationWest = await prisma.location.upsert({
     where: { id: SEED_IDS.locationWestId },
-    update: {},
+    update: { reminderOffsetsMinutes: defaultReminderOffsets },
     create: {
       id: SEED_IDS.locationWestId,
       organizationId: org.id,
@@ -133,6 +145,7 @@ async function main() {
       timezone: 'America/Los_Angeles',
       address: '500 Market St, San Francisco, CA',
       phone: '+1-555-0200',
+      reminderOffsetsMinutes: defaultReminderOffsets,
     },
   });
 
@@ -162,11 +175,12 @@ async function main() {
     const email = providerEmail(def.emailTag);
     const provider = await prisma.provider.upsert({
       where: { id: def.id },
-      update: { name: def.name, email, isActive: true },
+      update: { name: def.name, slug: def.slug, email, isActive: true },
       create: {
         id: def.id,
         organizationId: org.id,
         locationId: location.id,
+        slug: def.slug,
         name: def.name,
         email,
       },
@@ -181,6 +195,7 @@ async function main() {
       where: { id: def.id },
       update: {
         name: def.name,
+        slug: def.slug,
         description: def.description,
         productKey: def.productKey,
         durationMinutes: def.durationMinutes,
@@ -191,6 +206,7 @@ async function main() {
         id: def.id,
         organizationId: org.id,
         locationId: location.id,
+        slug: def.slug,
         name: def.name,
         description: def.description,
         productKey: def.productKey,
@@ -349,13 +365,21 @@ async function main() {
   for (const def of SERVICE_DEFS) {
     console.log(`  ${def.name.padEnd(24)} product=${def.productKey}`);
   }
-  console.log('\nBooking URLs:');
+  console.log('\nBooking URLs (wizard):');
   const keys = [...new Set(SERVICE_DEFS.map((s) => s.productKey))];
   for (const key of keys) {
-    console.log(`  http://localhost:3000/book?org=${SEED_IDS.orgSlug}&product=${key}`);
+    console.log(`  http://localhost:3002/book?org=${SEED_IDS.orgSlug}&product=${key}`);
   }
-  console.log(`\nAdmin portal:    http://localhost:3000/admin/dashboard`);
-  console.log(`Provider portal: http://localhost:3000/provider/dashboard`);
+  console.log('\nFilled link (one page, demo service + John Smith):');
+  console.log(
+    `  http://localhost:3002/book/john-smith/product-demo?org=${SEED_IDS.orgSlug}&source=demo`,
+  );
+  console.log('  (legacy IDs)');
+  console.log(
+    `  http://localhost:3002/book/event?org=${SEED_IDS.orgSlug}&serviceId=${SEED_IDS.serviceId}&providerId=${SEED_IDS.providerId}&source=demo`,
+  );
+  console.log(`\nAdmin portal:    http://localhost:3002/admin/dashboard`);
+  console.log(`Provider portal: http://localhost:3002/provider/dashboard`);
 }
 
 main()

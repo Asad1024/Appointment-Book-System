@@ -7,7 +7,10 @@ import { pageContainer } from '@/lib/layout';
 export function MainShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isHome = pathname === '/';
-  const isEmbed = pathname?.startsWith('/embed');
+  const isEmbed =
+    pathname?.startsWith('/embed') ||
+    pathname?.startsWith('/partner') ||
+    pathname?.startsWith('/b/');
   const isAuth =
     pathname?.startsWith('/login') ||
     pathname?.startsWith('/register') ||

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { formatInTimeZone } from 'date-fns-tz';
 import {
   Calendar,
@@ -14,10 +15,33 @@ import {
 import { Card, CardBody } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
+import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/shared/StatusBadge';
-import { DateTimePicker, type SlotOption } from '@/components/shared/DateTimePicker';
+import type { SlotOption } from '@/components/shared/DateTimePicker';
+import { AppointmentRemindersSection } from '@/components/manage/AppointmentRemindersSection';
 import { AppointmentReviewForm } from '@/components/manage/AppointmentReviewForm';
 import type { ManageAppointment, ReviewMeta } from '@/app/manage/[token]/types';
+
+const BookingDateTimePicker = dynamic(
+  () =>
+    import('@/components/booking/DateTimePicker').then((mod) => ({
+      default: mod.DateTimePicker,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="space-y-6" aria-hidden>
+        <Skeleton className="h-10 w-full max-w-xs" />
+        <Skeleton className="mx-auto h-72 w-full max-w-sm rounded-xl" />
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 rounded-xl" />
+          ))}
+        </div>
+      </div>
+    ),
+  },
+);
 
 function durationMinutes(startUtc: string, endUtc: string) {
   return Math.round((new Date(endUtc).getTime() - new Date(startUtc).getTime()) / 60_000);
@@ -34,7 +58,13 @@ type Props = {
   selectedDate: string;
   slots: SlotOption[];
   newStartUtc: string;
-  onRescheduleMode: (open: boolean) => void;
+  customerTimezone: string;
+  onCustomerTimezoneChange: (tz: string) => void;
+  minBookDate: string;
+  maxBookDate: string;
+  accentColor: string;
+  onRescheduleMode: () => void;
+  onCloseReschedule: () => void;
   onDateChange: (d: string) => void;
   onSlotSelect: (utc: string) => void;
   onReschedule: () => void;
@@ -42,6 +72,7 @@ type Props = {
   onDownloadIcs: () => void;
   onCancelClick: () => void;
   onReviewSubmitted: () => void;
+  canChangeTime: boolean;
 };
 
 export function ManageAppointmentDetails({
@@ -55,7 +86,13 @@ export function ManageAppointmentDetails({
   selectedDate,
   slots,
   newStartUtc,
+  customerTimezone,
+  onCustomerTimezoneChange,
+  minBookDate,
+  maxBookDate,
+  accentColor,
   onRescheduleMode,
+  onCloseReschedule,
   onDateChange,
   onSlotSelect,
   onReschedule,
@@ -63,6 +100,7 @@ export function ManageAppointmentDetails({
   onDownloadIcs,
   onCancelClick,
   onReviewSubmitted,
+  canChangeTime,
 }: Props) {
   const canModify = appt.status !== 'cancelled' && appt.status !== 'completed';
   const reschedulesLeft = Math.max(0, 3 - appt.rescheduleCount);
@@ -133,54 +171,72 @@ export function ManageAppointmentDetails({
           </div>
         ) : null}
 
+        <AppointmentRemindersSection
+          reminders={appt.reminders ?? []}
+          displayTimezone={displayTz}
+          appointmentStatus={appt.status}
+        />
+
         {canModify && (
           <p className="text-sm text-text-secondary">
             Reschedules remaining:{' '}
             <span className="font-semibold text-text-primary">{reschedulesLeft}</span>
-            {appt.location.cancellationCutoffH > 0 && (
+            {appt.location.cancellationCutoffH > 0 && canChangeTime && (
               <span className="text-text-muted">
                 {' '}
-                · Cancel or reschedule at least {appt.location.cancellationCutoffH}h before start
+                · Cancel or reschedule at least {appt.location.cancellationCutoffH}h before start when
+                booked in advance
               </span>
             )}
           </p>
         )}
 
-        {rescheduleMode && canModify && (
+        {canModify && !canChangeTime && (
+          <Alert variant="info">
+            Changes are no longer allowed online — you are within{' '}
+            {appt.location.cancellationCutoffH > 0
+              ? `the ${appt.location.cancellationCutoffH}-hour change window`
+              : 'the final hour before your appointment'}
+            . Contact {appt.location.name} if you need help.
+          </Alert>
+        )}
+
+        {rescheduleMode && canChangeTime && (
           <div
             ref={rescheduleRef}
             className="scroll-mt-24 rounded-xl border-2 border-brand-200 bg-brand-50/40 p-5 dark:border-brand-800 dark:bg-brand-950/20"
           >
             <h3 className="font-semibold text-text-primary">Pick a new time</h3>
             <p className="mt-1 text-sm text-text-secondary">
-              Choose a date and available slot with {appt.provider.name}.
+              Your current appointment is pre-selected. Choose another date or time with{' '}
+              {appt.provider.name}, or confirm to keep the same slot.
+            </p>
+            <p className="mt-2 rounded-lg border border-brand-200/80 bg-white/80 px-3 py-2 text-sm text-text-primary dark:border-brand-800 dark:bg-slate-900/80">
+              <span className="font-medium">Current time: </span>
+              {formatInTimeZone(new Date(appt.startUtc), customerTimezone, 'EEE, MMM d · h:mm a')}
             </p>
             <div className="mt-4">
-              <DateTimePicker
-                timezone={appt.timezone}
+              <BookingDateTimePicker
+                locationTimezone={appt.timezone}
+                customerTimezone={customerTimezone}
+                onCustomerTimezoneChange={onCustomerTimezoneChange}
                 selectedDate={selectedDate}
-                onDateChange={(d) => {
-                  onDateChange(d);
-                  onSlotSelect('');
-                }}
-                selectedStartUtc={newStartUtc}
+                onDateChange={onDateChange}
+                startUtc={newStartUtc}
                 onSlotSelect={onSlotSelect}
                 slots={slots}
                 loading={loading}
+                minDate={minBookDate}
+                maxDate={maxBookDate}
+                accentColor={accentColor}
+                currentStartUtc={appt.startUtc}
               />
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
               <Button disabled={!newStartUtc || loading} onClick={onReschedule}>
                 Confirm new time
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  onRescheduleMode(false);
-                  onDateChange('');
-                  onSlotSelect('');
-                }}
-              >
+              <Button variant="outline" onClick={onCloseReschedule}>
                 Cancel
               </Button>
             </div>
@@ -204,14 +260,16 @@ export function ManageAppointmentDetails({
             <Button variant="outline" onClick={onDownloadIcs}>
               Download .ics
             </Button>
-            {reschedulesLeft > 0 && (
-              <Button variant="outline" onClick={() => onRescheduleMode(true)}>
+            {canChangeTime && reschedulesLeft > 0 && (
+              <Button variant="outline" onClick={onRescheduleMode}>
                 Reschedule
               </Button>
             )}
-            <Button variant="danger" disabled={loading} onClick={onCancelClick}>
-              Cancel appointment
-            </Button>
+            {canChangeTime && (
+              <Button variant="danger" disabled={loading} onClick={onCancelClick}>
+                Cancel appointment
+              </Button>
+            )}
           </div>
         )}
 

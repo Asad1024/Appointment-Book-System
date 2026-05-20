@@ -1,8 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { AppointmentStatus, NotificationType } from '@pkg/shared-types';
+import {
+  AppointmentStatus,
+  NotificationType,
+  REMINDER_CRON_WINDOW_MINUTES,
+  parseReminderOffsetsJson,
+} from '@pkg/shared-types';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../prisma/prisma.service';
+import { ReminderConfigService } from './reminder-config.service';
 import { NotificationsService } from './notifications.service';
 
 @Injectable()
@@ -11,53 +17,56 @@ export class ReminderScheduler {
 
   constructor(
     private prisma: PrismaService,
+    private reminderConfig: ReminderConfigService,
     private notifications: NotificationsService,
   ) {}
 
   @Cron('*/15 * * * *')
   async sendReminders() {
     const now = DateTime.utc();
-
-    await this.processWindow({
-      hours: 24,
-      flag: 'reminderSent24h',
-      type: NotificationType.REMINDER_24H,
-      now,
-    });
-
-    await this.processWindow({
-      hours: 1,
-      flag: 'reminderSent1h',
-      type: NotificationType.REMINDER_1H,
-      now,
-    });
-  }
-
-  private async processWindow(opts: {
-    hours: number;
-    flag: 'reminderSent24h' | 'reminderSent1h';
-    type: NotificationType;
-    now: DateTime;
-  }) {
-    const target = opts.now.plus({ hours: opts.hours });
-    const windowStart = target.minus({ minutes: 15 });
-    const windowEnd = target.plus({ minutes: 15 });
+    const horizon = now.plus({ days: 8 });
 
     const appointments = await this.prisma.appointment.findMany({
       where: {
         status: { in: [AppointmentStatus.CONFIRMED, AppointmentStatus.PENDING] },
-        [opts.flag]: false,
-        startUtc: { gte: windowStart.toJSDate(), lte: windowEnd.toJSDate() },
+        startUtc: { gte: now.toJSDate(), lte: horizon.toJSDate() },
+      },
+      select: {
+        id: true,
+        startUtc: true,
+        reminderOffsetsMinutes: true,
+        remindersSentMinutes: true,
       },
     });
 
     for (const appt of appointments) {
-      await this.notifications.enqueueReminder(appt.id, opts.type);
-      await this.prisma.appointment.update({
-        where: { id: appt.id },
-        data: { [opts.flag]: true },
-      });
-      this.logger.log(`Queued ${opts.type} for appointment ${appt.id}`);
+      const offsets = parseReminderOffsetsJson(appt.reminderOffsetsMinutes, [] as number[]);
+      if (offsets.length === 0) continue;
+
+      let sent = this.reminderConfig.parseSentFlags(appt.remindersSentMinutes);
+      const start = DateTime.fromJSDate(appt.startUtc, { zone: 'utc' });
+
+      for (const minutesBefore of offsets) {
+        if (sent.includes(minutesBefore)) continue;
+
+        const target = start.minus({ minutes: minutesBefore });
+        const windowStart = target.minus({ minutes: REMINDER_CRON_WINDOW_MINUTES });
+        const windowEnd = target.plus({ minutes: REMINDER_CRON_WINDOW_MINUTES });
+
+        if (now < windowStart || now > windowEnd) continue;
+
+        await this.notifications.enqueueReminder(appt.id, NotificationType.REMINDER, minutesBefore);
+        sent = [...sent, minutesBefore];
+        await this.prisma.appointment.update({
+          where: { id: appt.id },
+          data: {
+            remindersSentMinutes: this.reminderConfig.offsetsForStorage(sent),
+          },
+        });
+        this.logger.log(
+          `Queued reminder ${minutesBefore}m before for appointment ${appt.id}`,
+        );
+      }
     }
   }
 }

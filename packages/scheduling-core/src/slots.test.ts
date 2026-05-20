@@ -52,8 +52,21 @@ describe('generateAvailableSlots', () => {
 });
 
 describe('canReschedule', () => {
-  it('returns false inside cutoff', () => {
-    const soon = new Date(Date.now() + 60 * 60 * 1000);
-    assert.equal(canReschedule(soon, 24), false);
+  it('returns false inside cutoff when booked far ahead', () => {
+    const in12h = new Date(Date.now() + 12 * 60 * 60 * 1000);
+    const bookedDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    assert.equal(canReschedule(in12h, 24, 1, bookedDaysAgo), false);
+  });
+
+  it('returns false within minimum lead time', () => {
+    const in30m = new Date(Date.now() + 30 * 60 * 1000);
+    const bookedNow = new Date();
+    assert.equal(canReschedule(in30m, 24, 1, bookedNow), false);
+  });
+
+  it('allows same-day booking inside nominal cutoff window', () => {
+    const in3h = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    const bookedNow = new Date();
+    assert.equal(canReschedule(in3h, 24, 1, bookedNow), true);
   });
 });

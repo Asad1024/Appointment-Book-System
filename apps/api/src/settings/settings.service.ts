@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { BOOKING_CURRENCIES } from '@pkg/shared-types';
+import { BOOKING_CURRENCIES, stringifyReminderOffsets } from '@pkg/shared-types';
+import { ReminderConfigService } from '../notifications/reminder-config.service';
 
 const ALLOWED_BOOKING_CURRENCIES = new Set(BOOKING_CURRENCIES.map((c) => c.code));
 import * as bcrypt from 'bcrypt';
@@ -8,7 +9,10 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class SettingsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private reminderConfig: ReminderConfigService,
+  ) {}
 
   async updateOrganization(
     orgId: string,
@@ -17,6 +21,8 @@ export class SettingsService {
       logoUrl?: string;
       primaryColor?: string;
       bookingCurrency?: string;
+      webhookUrl?: string | null;
+      webhookSecret?: string | null;
     },
   ) {
     const payload: {
@@ -24,6 +30,8 @@ export class SettingsService {
       logoUrl?: string;
       primaryColor?: string;
       bookingCurrency?: string;
+      webhookUrl?: string | null;
+      webhookSecret?: string | null;
     } = { ...data };
 
     if (data.name !== undefined) {
@@ -39,6 +47,17 @@ export class SettingsService {
       }
       payload.bookingCurrency = raw;
     }
+
+    if (data.webhookUrl !== undefined) {
+      const url = data.webhookUrl?.trim() ?? '';
+      payload.webhookUrl = url.length > 0 ? url : null;
+    }
+
+    if (data.webhookSecret !== undefined) {
+      const secret = data.webhookSecret?.trim() ?? '';
+      payload.webhookSecret = secret.length > 0 ? secret : null;
+    }
+
     return this.prisma.organization.update({
       where: { id: orgId },
       data: payload,
@@ -78,6 +97,7 @@ export class SettingsService {
       cancellationCutoffH?: number;
       leadTimeMinutes?: number;
       bookingWindowDays?: number;
+      reminderOffsetsMinutes?: number[];
     },
   ) {
     const loc = await this.prisma.location.findFirst({
@@ -109,6 +129,13 @@ export class SettingsService {
     if (data.bookingWindowDays !== undefined) {
       updateData.bookingWindowDays = data.bookingWindowDays;
     }
+    if (data.reminderOffsetsMinutes !== undefined) {
+      const offsets = this.reminderConfig.validateOffsets(data.reminderOffsetsMinutes, {
+        allowEmpty: true,
+      });
+      (updateData as Prisma.LocationUpdateInput).reminderOffsetsMinutes =
+        stringifyReminderOffsets(offsets);
+    }
 
     return this.prisma.location.update({ where: { id: locationId }, data: updateData });
   }
@@ -119,6 +146,10 @@ export class SettingsService {
       include: { locations: true },
     });
     if (!org) throw new NotFoundException('Organization not found');
-    return org;
+    const { webhookSecret, ...rest } = org;
+    return {
+      ...rest,
+      hasWebhookSecret: Boolean(webhookSecret?.length),
+    };
   }
 }

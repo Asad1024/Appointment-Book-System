@@ -1,4 +1,4 @@
-import { NotificationType } from '@pkg/shared-types';
+import { NotificationType, formatReminderOffsetLabel } from '@pkg/shared-types';
 import type { AppointmentEmailData } from './appointment-emails';
 
 const SUBJECTS: Record<string, string> = {
@@ -21,9 +21,21 @@ const INTROS: Record<string, string> = {
 export function appointmentWhatsAppMessage(
   type: NotificationType,
   data: AppointmentEmailData,
+  opts?: { reminderMinutesBefore?: number },
 ): string {
-  const title = SUBJECTS[type] ?? 'Appointment update';
-  const intro = INTROS[type] ?? 'Details for your appointment:';
+  let title = SUBJECTS[type] ?? 'Appointment update';
+  let intro = INTROS[type] ?? 'Details for your appointment:';
+  if (type === NotificationType.REMINDER && opts?.reminderMinutesBefore) {
+    const label = formatReminderOffsetLabel(opts.reminderMinutesBefore);
+    title = `Reminder: appointment ${label}`;
+    intro = `Friendly reminder — your appointment is ${label}.`;
+  } else if (type === NotificationType.REMINDER_24H) {
+    title = SUBJECTS[NotificationType.REMINDER_24H];
+    intro = INTROS[NotificationType.REMINDER_24H];
+  } else if (type === NotificationType.REMINDER_1H) {
+    title = SUBJECTS[NotificationType.REMINDER_1H];
+    intro = INTROS[NotificationType.REMINDER_1H];
+  }
   const when = data.customerTimezone
     ? `${data.startUtc} (${data.timezone}, your TZ: ${data.customerTimezone})`
     : `${data.startUtc} (${data.timezone})`;

@@ -1,7 +1,9 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEmail,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -91,4 +93,13 @@ export class BookAppointmentDto {
   @ValidateNested({ each: true })
   @Type(() => IntakeResponseItemDto)
   intakeResponses?: IntakeResponseItemDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  remindersEnabled?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  reminderOffsetsMinutes?: number[];
 }
