@@ -125,7 +125,11 @@ export class BookingValidationService {
       excludeAppointmentId,
     });
 
-    const match = slots.some((s) => this.slotStartMatches(startUtc, s.startUtc));
+    const match = slots.some(
+      (s) =>
+        (s.status ?? 'available') === 'available' &&
+        this.slotStartMatches(startUtc, s.startUtc),
+    );
 
     if (!match) {
       throw new ConflictException('Selected time slot is not available');

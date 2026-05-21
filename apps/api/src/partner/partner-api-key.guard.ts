@@ -40,6 +40,7 @@ export class PartnerApiKeyGuard implements CanActivate {
       where: {
         keyHash: hash,
         revokedAt: null,
+        isActive: true,
       },
       include: { organization: { select: { id: true, slug: true } } },
     });

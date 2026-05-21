@@ -41,11 +41,53 @@ export class TeamService {
         email: true,
         name: true,
         role: true,
+        isActive: true,
         createdAt: true,
         provider: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  private async getOrgMember(organizationId: string, memberId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: memberId, organizationId, role: { in: STAFF_ROLES } },
+    });
+    if (!user) throw new NotFoundException('Team member not found');
+    return user;
+  }
+
+  async updateMember(
+    organizationId: string,
+    memberId: string,
+    data: { isActive?: boolean },
+    actorUserId: string,
+  ) {
+    const member = await this.getOrgMember(organizationId, memberId);
+    if (memberId === actorUserId && data.isActive === false) {
+      throw new BadRequestException('You cannot deactivate your own account');
+    }
+    return this.prisma.user.update({
+      where: { id: memberId },
+      data: { isActive: data.isActive },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        isActive: true,
+        provider: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  async removeMember(organizationId: string, memberId: string, actorUserId: string) {
+    if (memberId === actorUserId) {
+      throw new BadRequestException('You cannot remove your own account');
+    }
+    await this.getOrgMember(organizationId, memberId);
+    await this.prisma.user.delete({ where: { id: memberId } });
+    return { ok: true };
   }
 
   async listInvites(organizationId: string) {
@@ -55,6 +97,7 @@ export class TeamService {
         id: true,
         email: true,
         role: true,
+        providerId: true,
         expiresAt: true,
         createdAt: true,
         invitedBy: { select: { name: true, email: true } },

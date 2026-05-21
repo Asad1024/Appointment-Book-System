@@ -25,7 +25,12 @@ import { Alert } from '@/components/ui/alert';
 import { AnimatedCheckmark } from '@/components/shared/AnimatedCheckmark';
 import { BookingWizardLayout } from '@/components/booking/BookingWizardLayout';
 import { BookingSummaryPanel } from '@/components/booking/BookingSummaryPanel';
+import { AppointmentTimeSummary } from '@/components/booking/AppointmentTimeSummary';
 import { DateTimePicker } from '@/components/booking/DateTimePicker';
+import {
+  resolveInitialCustomerTimezone,
+  saveBookingTimezone,
+} from '@/lib/booking-timezone';
 import { StepIndicator } from '@/components/booking/StepIndicator';
 import { WizardStepNav } from '@/components/booking/WizardStepNav';
 import { cn } from '@/lib/utils';
@@ -126,9 +131,7 @@ export function BookingWizard({ params }: { params: BookingParams }) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [timezone, setTimezone] = useState('UTC');
-  const [customerTimezone, setCustomerTimezone] = useState(
-    typeof window !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC',
-  );
+  const [customerTimezone, setCustomerTimezone] = useState('UTC');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [slotUnavailable, setSlotUnavailable] = useState(false);
@@ -209,10 +212,16 @@ export function BookingWizard({ params }: { params: BookingParams }) {
         if (saved.providerId) setProviderId(String(saved.providerId));
         if (saved.selectedDate) setSelectedDate(String(saved.selectedDate));
         if (saved.startUtc) setStartUtc(String(saved.startUtc));
-        if (saved.customerTimezone) setCustomerTimezone(String(saved.customerTimezone));
+        if (saved.customerTimezone) {
+          setCustomerTimezone(String(saved.customerTimezone));
+        } else {
+          setCustomerTimezone(resolveInitialCustomerTimezone('UTC'));
+        }
+      } else {
+        setCustomerTimezone(resolveInitialCustomerTimezone('UTC'));
       }
     } catch {
-      /* ignore */
+      setCustomerTimezone(resolveInitialCustomerTimezone('UTC'));
     }
 
     const prefillName = params.customerName?.trim() ?? '';
@@ -276,6 +285,17 @@ export function BookingWizard({ params }: { params: BookingParams }) {
       }),
     );
   }, [step, serviceId, providerId, selectedDate, startUtc, customerTimezone, locationId]);
+
+  useEffect(() => {
+    if (customerTimezone && customerTimezone !== 'UTC') {
+      saveBookingTimezone(customerTimezone);
+    }
+  }, [customerTimezone]);
+
+  const handleCustomerTimezoneChange = (tz: string) => {
+    saveBookingTimezone(tz);
+    setCustomerTimezone(tz);
+  };
 
   useEffect(() => {
     if (!startUtc) return;
@@ -562,7 +582,9 @@ export function BookingWizard({ params }: { params: BookingParams }) {
         `/availability/slots?locationId=${locationId}&serviceId=${serviceId}&providerId=${providerId}&fromDate=${selectedDate}&toDate=${selectedDate}`,
       );
       const stillAvailable = fresh.slots.some(
-        (s) => Math.abs(new Date(s.startUtc).getTime() - new Date(startUtc).getTime()) < 60_000,
+        (s) =>
+          (s.status ?? 'available') === 'available' &&
+          Math.abs(new Date(s.startUtc).getTime() - new Date(startUtc).getTime()) < 60_000,
       );
       if (!stillAvailable) {
         setSlots(fresh.slots);
@@ -696,9 +718,7 @@ export function BookingWizard({ params }: { params: BookingParams }) {
 
   const header = (
     <>
-      {ctx?.branding.logoUrl && (
-        <img src={ctx.branding.logoUrl} alt="" className="h-10 object-contain" />
-      )}
+      <img src="/logo.png" alt="" className="h-8 w-8 shrink-0 rounded-lg object-contain" />
       {params.source && !params.partner && (
         <p className="text-sm text-slate-500 dark:text-slate-400">
           Referred from <span className="font-medium text-slate-700 dark:text-slate-200">{params.source}</span>
@@ -873,7 +893,7 @@ export function BookingWizard({ params }: { params: BookingParams }) {
                     <DateTimePicker
                       locationTimezone={timezone}
                       customerTimezone={customerTimezone}
-                      onCustomerTimezoneChange={setCustomerTimezone}
+                      onCustomerTimezoneChange={handleCustomerTimezoneChange}
                       selectedDate={selectedDate}
                       onDateChange={handleDateChange}
                       startUtc={startUtc}
@@ -1082,19 +1102,27 @@ export function BookingWizard({ params }: { params: BookingParams }) {
               {step === confirmStep && (
                 <div>
                   <h2 className="font-display text-lg font-semibold">Confirm your booking</h2>
+                  {startUtc && (
+                    <AppointmentTimeSummary
+                      className="mt-6"
+                      startUtc={startUtc}
+                      endUtc={
+                        selectedService?.durationMinutes
+                          ? new Date(
+                              new Date(startUtc).getTime() +
+                                selectedService.durationMinutes * 60_000,
+                            ).toISOString()
+                          : undefined
+                      }
+                      customerTimezone={customerTimezone}
+                      officeTimezone={timezone}
+                    />
+                  )}
                   <dl className="mt-6 divide-y divide-slate-100 rounded-xl border border-slate-100 bg-slate-50/50 dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900/50">
                     {[
                       ...(hasLocationStep ? [['Location', selectedLocation?.name] as const] : []),
                       ['Service', selectedService?.name],
                       ['Expert', providerId === 'any' ? 'Any available' : selectedProvider?.name],
-                      [
-                        'When (your time)',
-                        startUtc && formatInTimeZone(new Date(startUtc), customerTimezone, 'PPpp'),
-                      ],
-                      [
-                        'When (location)',
-                        startUtc && formatInTimeZone(new Date(startUtc), timezone, 'PPpp'),
-                      ],
                       ['Name', customerName],
                       ['Email', customerEmail],
                       ['Phone', customerPhone],

@@ -17,6 +17,7 @@ model Organization {
   allowedEmbedOrigins   String?   @map("allowed_embed_origins")
   webhookUrl            String?   @map("webhook_url")
   webhookSecret         String?   @map("webhook_secret")
+  webhookEnabled        Boolean   @default(true) @map("webhook_enabled")
   subscriptionPlan      String    @default("free") @map("subscription_plan")
   subscriptionStatus    String    @default("inactive") @map("subscription_status")
   subscriptionExpiresAt DateTime? @map("subscription_expires_at")
@@ -31,9 +32,26 @@ model Organization {
   users       User[]
   teamInvites TeamInvite[]
   apiKeys                ApiKey[]
+  outboundWebhooks       OutboundWebhook[]
   partnerBookingSessions PartnerBookingSession[]
 
   @@map("organizations")
+}
+
+model OutboundWebhook {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  url            String
+  secret         String
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, isActive])
+  @@map("outbound_webhooks")
 }
 
 // Short-lived partner booking links (Leads Reach, etc.) — no PII in URL.
@@ -68,6 +86,7 @@ model ApiKey {
   name           String
   keyPrefix      String    @map("key_prefix")
   keyHash        String    @map("key_hash")
+  isActive       Boolean   @default(true) @map("is_active")
   createdById    String?   @map("created_by_id")
   lastUsedAt     DateTime? @map("last_used_at")
   revokedAt      DateTime? @map("revoked_at")
@@ -123,6 +142,7 @@ model User {
   emailVerifyTokenExpires DateTime? @map("email_verify_token_expires")
   passwordResetToken      String?   @unique @map("password_reset_token")
   passwordResetExpires    DateTime? @map("password_reset_expires")
+  isActive                Boolean   @default(true) @map("is_active")
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
 

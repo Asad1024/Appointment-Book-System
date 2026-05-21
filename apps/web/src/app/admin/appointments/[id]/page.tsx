@@ -198,7 +198,7 @@ export default function AdminAppointmentDetailPage() {
                 <dd className="mt-0.5 font-medium">{appt.location.name}</dd>
               </div>
               <div>
-                <dt className="text-text-muted">Source</dt>
+                <dt className="text-text-muted">Shared from</dt>
                 <dd className="mt-0.5 font-medium capitalize">{appt.source}</dd>
               </div>
               {appt.product && (
@@ -209,7 +209,7 @@ export default function AdminAppointmentDetailPage() {
               )}
               {appt.campaign && (
                 <div>
-                  <dt className="text-text-muted">Campaign</dt>
+                  <dt className="text-text-muted">Link name</dt>
                   <dd className="mt-0.5 font-medium">{appt.campaign}</dd>
                 </div>
               )}

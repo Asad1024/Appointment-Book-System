@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Building2,
@@ -11,7 +12,6 @@ import {
   Sun,
   Laptop,
 } from 'lucide-react';
-import { UserRole } from '@pkg/shared-types';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import { AdminLocationsCard, type OrgLocation } from '@/components/admin/AdminLocationsCard';
@@ -20,8 +20,6 @@ import {
   DEFAULT_REMINDER_OFFSETS_MINUTES,
   parseReminderOffsetsJson,
 } from '@pkg/shared-types';
-import { BillingCard } from '@/components/admin/BillingCard';
-import { AdminIntegrationsCard } from '@/components/admin/AdminIntegrationsCard';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
@@ -45,13 +43,14 @@ import {
   type BookingCurrencyCode,
 } from '@/lib/currency';
 import { useAdminLocation } from '@/lib/admin-location-context';
+import { PLATFORM_LOGO_PATH } from '@/lib/brand';
 import { cn } from '@/lib/utils';
+import { TimezoneSelect } from '@/components/shared/TimezoneSelect';
 
 type OrganizationSettings = {
   id: string;
   name: string;
   slug?: string;
-  logoUrl?: string | null;
   bookingCurrency?: string | null;
   webhookUrl?: string | null;
   hasWebhookSecret?: boolean;
@@ -60,7 +59,6 @@ type OrganizationSettings = {
 
 type BrandingForm = {
   name: string;
-  logoUrl: string;
 };
 
 type LocationForm = {
@@ -104,11 +102,8 @@ export default function AdminSettingsPage() {
 
   const [org, setOrg] = useState<OrganizationSettings | null>(null);
   const [loading, setLoading] = useState(true);
-  const [userRole, setUserRole] = useState<string | null>(null);
-
   const [branding, setBranding] = useState<BrandingForm>({
     name: '',
-    logoUrl: '',
   });
   const [bookingCurrency, setBookingCurrency] = useState<BookingCurrencyCode>(
     DEFAULT_BOOKING_CURRENCY,
@@ -145,7 +140,6 @@ export default function AdminSettingsPage() {
     setOrg(nextOrg);
     setBranding({
       name: nextOrg.name ?? '',
-      logoUrl: nextOrg.logoUrl ?? '',
     });
     setBookingCurrency(normalizeBookingCurrency(nextOrg.bookingCurrency));
   }, []);
@@ -159,7 +153,6 @@ export default function AdminSettingsPage() {
           apiAuth<AuthUser>('/auth/me'),
         ]);
         applyOrganization(orgData);
-        setUserRole(me.role);
         setProfile((prev) => ({
           ...prev,
           name: me.name ?? '',
@@ -200,7 +193,6 @@ export default function AdminSettingsPage() {
         method: 'PATCH',
         body: JSON.stringify({
           name: branding.name.trim(),
-          logoUrl: branding.logoUrl.trim() || null,
         }),
       });
       await loadOrganization(false);
@@ -402,7 +394,7 @@ export default function AdminSettingsPage() {
               Settings
             </h1>
             <p className="mt-1 text-sm text-text-secondary">
-              Configure organization profile, booking rules, and billing setup
+              Configure organization profile, booking rules, and locations
             </p>
           </div>
         </div>
@@ -474,20 +466,6 @@ export default function AdminSettingsPage() {
                     >
                       Locations
                     </TabsTrigger>
-                    <TabsTrigger
-                      value="billing"
-                      className="rounded-lg px-4 data-[state=active]:bg-brand-600 data-[state=active]:text-white"
-                    >
-                      Billing
-                    </TabsTrigger>
-                    {(userRole === UserRole.ORG_ADMIN || userRole === UserRole.SUPER_ADMIN) && (
-                      <TabsTrigger
-                        value="integrations"
-                        className="rounded-lg px-4 data-[state=active]:bg-brand-600 data-[state=active]:text-white"
-                      >
-                        Integrations
-                      </TabsTrigger>
-                    )}
                   </TabsList>
                   <p className="text-xs text-text-muted">
                     Use tabs to keep settings grouped and easy to manage.
@@ -527,42 +505,26 @@ export default function AdminSettingsPage() {
                               />
                             </div>
 
-                            <div className="sm:col-span-2">
-                              <Label htmlFor="logo-url">Logo URL</Label>
-                              <Input
-                                id="logo-url"
-                                type="url"
-                                value={branding.logoUrl}
-                                onChange={(e) =>
-                                  setBranding((prev) => ({ ...prev, logoUrl: e.target.value }))
-                                }
-                                placeholder="https://example.com/logo.png"
-                              />
-                            </div>
-
                             <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/60">
                               <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-                                Preview
+                                Booking preview
                               </p>
                               <div className="mt-3 flex items-center gap-3">
-                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-600 text-sm font-semibold text-white">
-                                  {(branding.name || 'S').charAt(0).toUpperCase()}
-                                </div>
+                                <Image
+                                  src={PLATFORM_LOGO_PATH}
+                                  alt=""
+                                  width={36}
+                                  height={36}
+                                  className="h-9 w-9 shrink-0 rounded-lg object-contain"
+                                />
                                 <div className="min-w-0">
                                   <p className="truncate text-sm font-semibold text-text-primary">
                                     {branding.name || 'Your organization'}
                                   </p>
-                                  <p className="truncate text-xs text-text-secondary">
-                                    {branding.logoUrl || 'No logo URL provided'}
+                                  <p className="text-xs text-text-secondary">
+                                    Same app logo shown on customer booking pages
                                   </p>
                                 </div>
-                                {branding.logoUrl ? (
-                                  <img
-                                    src={branding.logoUrl}
-                                    alt="Organization logo preview"
-                                    className="h-10 w-10 shrink-0 rounded-md border border-slate-200 object-cover dark:border-slate-700"
-                                  />
-                                ) : null}
                               </div>
                             </div>
                           </div>
@@ -865,17 +827,13 @@ export default function AdminSettingsPage() {
                                 required
                               />
                             </div>
-                            <div>
-                              <Label htmlFor="location-timezone">Timezone</Label>
-                              <Input
-                                id="location-timezone"
-                                value={locationForm.timezone}
-                                onChange={(e) =>
-                                  setLocationForm((prev) => ({ ...prev, timezone: e.target.value }))
-                                }
-                                placeholder="Asia/Dubai"
-                              />
-                            </div>
+                            <TimezoneSelect
+                              id="location-timezone"
+                              value={locationForm.timezone}
+                              onValueChange={(timezone) =>
+                                setLocationForm((prev) => ({ ...prev, timezone }))
+                              }
+                            />
                             <div>
                               <Label htmlFor="location-address">Address</Label>
                               <Input
@@ -961,22 +919,6 @@ export default function AdminSettingsPage() {
                   </Card>
                 </TabsContent>
 
-                <TabsContent value="billing" className="mt-0">
-                  <BillingCard />
-                </TabsContent>
-
-                {(userRole === UserRole.ORG_ADMIN || userRole === UserRole.SUPER_ADMIN) && (
-                  <TabsContent value="integrations" className="mt-0">
-                    <AdminIntegrationsCard
-                      orgSlug={org.slug}
-                      webhook={{
-                        webhookUrl: org.webhookUrl,
-                        hasWebhookSecret: org.hasWebhookSecret,
-                      }}
-                      onWebhookSaved={() => void loadOrganization(false)}
-                    />
-                  </TabsContent>
-                )}
               </Tabs>
             </>
           )}

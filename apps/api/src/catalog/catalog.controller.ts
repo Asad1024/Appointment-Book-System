@@ -17,6 +17,9 @@ import { UserRole } from '@pkg/shared-types';
 import { CatalogService } from './catalog.service';
 import { IntakeFieldsService } from './intake-fields.service';
 import { UnlinkServiceProviderDto } from './dto/unlink-service-provider.dto';
+import { SyncProviderServicesDto } from './dto/sync-provider-services.dto';
+import { SyncServiceProvidersDto } from './dto/sync-service-providers.dto';
+import { CreateStaffBookingSessionDto } from './dto/create-staff-booking-session.dto';
 import { Public } from '../auth/public.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -66,6 +69,18 @@ export class CatalogController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...MANAGER_ROLES, UserRole.PROVIDER)
+  @Get('locations/:locationId/calendar-bounds')
+  async getLocationCalendarBounds(
+    @Req() req: { user: AuthUser },
+    @Param('locationId') locationId: string,
+  ) {
+    await this.catalog.assertCanAccessLocation(req.user, locationId);
+    return this.catalog.getLocationCalendarBounds(locationId);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...MANAGER_ROLES, UserRole.PROVIDER)
   @Get('staff/booking-link-options')
   listBookingLinkOptions(
     @Req() req: { user: AuthUser },
@@ -84,6 +99,17 @@ export class CatalogController {
       locationId,
       restrictProviderId,
     );
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...MANAGER_ROLES, UserRole.PROVIDER)
+  @Post('staff/booking-sessions')
+  createStaffBookingSession(
+    @Req() req: { user: AuthUser },
+    @Body() dto: CreateStaffBookingSessionDto,
+  ) {
+    return this.catalog.createStaffBookingSession(req.user, dto);
   }
 
   @ApiBearerAuth()
@@ -221,6 +247,15 @@ export class CatalogController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...SCHEDULE_ROLES)
+  @Get('providers/:id/calendar-bounds')
+  async getProviderCalendarBounds(@Req() req: { user: AuthUser }, @Param('id') id: string) {
+    await this.catalog.assertCanManageProvider(req.user, id);
+    return this.catalog.getProviderCalendarBounds(id);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...SCHEDULE_ROLES)
   @Put('providers/:id/availability')
   async setAvailability(
     @Req() req: { user: AuthUser },
@@ -268,7 +303,7 @@ export class CatalogController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN, UserRole.LOCATION_MANAGER)
   @Post('service-providers')
   linkServiceProvider(@Body() body: { serviceId: string; providerId: string }) {
     return this.catalog.linkServiceProvider(body.serviceId, body.providerId);
@@ -276,10 +311,40 @@ export class CatalogController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN, UserRole.LOCATION_MANAGER)
   @Delete('service-providers')
   unlinkServiceProvider(@Body() body: UnlinkServiceProviderDto) {
     return this.catalog.unlinkServiceProvider(body.serviceId, body.providerId);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN, UserRole.LOCATION_MANAGER)
+  @Put('services/:serviceId/providers')
+  syncServiceProviders(
+    @Param('serviceId') serviceId: string,
+    @Body() body: SyncServiceProvidersDto,
+  ) {
+    return this.catalog.syncServiceProviders(serviceId, body.providerIds ?? []);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...MANAGER_ROLES)
+  @Get('providers/:providerId/services')
+  listProviderServices(@Param('providerId') providerId: string) {
+    return this.catalog.listProviderServices(providerId);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN, UserRole.LOCATION_MANAGER)
+  @Put('providers/:providerId/services')
+  syncProviderServices(
+    @Param('providerId') providerId: string,
+    @Body() body: SyncProviderServicesDto,
+  ) {
+    return this.catalog.syncProviderServices(providerId, body.serviceIds ?? []);
   }
 
   @Public()

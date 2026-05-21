@@ -2,11 +2,25 @@
 
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import { cn } from '@/lib/cn';
 
-export function PartnerBookingFooter({ returnUrl }: { returnUrl?: string | null }) {
+export function PartnerBookingFooter({
+  returnUrl,
+  className,
+}: {
+  returnUrl?: string | null;
+  className?: string;
+}) {
   return (
-    <footer className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-      <span>Powered by Slotwise</span>
+    <footer
+      className={cn(
+        'flex w-full flex-col items-center gap-2 pt-4 text-xs text-slate-500 dark:text-slate-400 sm:flex-row sm:justify-between',
+        className,
+      )}
+    >
+      <span>
+        Powered by <span className="font-medium text-slate-600 dark:text-slate-300">Slotwise</span>
+      </span>
       {returnUrl ? (
         <Link
           href={returnUrl}

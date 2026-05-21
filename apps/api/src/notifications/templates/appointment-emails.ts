@@ -1,4 +1,5 @@
 import { NotificationType, formatReminderOffsetLabel } from '@pkg/shared-types';
+import { formatAppointmentWhenHtml } from './format-appointment-when';
 import { emailButton, emailCalendarLinks, emailHeading, emailLayout, emailParagraph } from './layout';
 
 export interface AppointmentEmailData {
@@ -44,11 +45,7 @@ const INTROS: Record<string, string> = {
 };
 
 function formatWhen(data: AppointmentEmailData): string {
-  const when = `${data.startUtc} (${data.timezone})`;
-  if (data.customerTimezone) {
-    return `${when}<br /><span style="color:#64748b;font-size:13px;">Your time zone: ${data.customerTimezone}</span>`;
-  }
-  return when;
+  return formatAppointmentWhenHtml(data);
 }
 
 function reminderCopy(minutesBefore: number) {

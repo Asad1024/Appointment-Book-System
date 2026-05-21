@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { BOOKING_CURRENCIES, stringifyReminderOffsets } from '@pkg/shared-types';
 import { ReminderConfigService } from '../notifications/reminder-config.service';
+import { generateWebhookSigningSecret } from './webhook-secret.util';
 
 const ALLOWED_BOOKING_CURRENCIES = new Set(BOOKING_CURRENCIES.map((c) => c.code));
 import * as bcrypt from 'bcrypt';
@@ -14,6 +15,21 @@ export class SettingsService {
     private reminderConfig: ReminderConfigService,
   ) {}
 
+  private normalizeWebhookUrl(raw: string | null | undefined): string | null {
+    const url = raw?.trim() ?? '';
+    if (!url) return null;
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new BadRequestException('Webhook URL must be a valid absolute URL');
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new BadRequestException('Webhook URL must use http or https');
+    }
+    return parsed.toString().replace(/\/$/, '');
+  }
+
   async updateOrganization(
     orgId: string,
     data: {
@@ -22,9 +38,14 @@ export class SettingsService {
       primaryColor?: string;
       bookingCurrency?: string;
       webhookUrl?: string | null;
-      webhookSecret?: string | null;
+      webhookEnabled?: boolean;
+      /** When true and a webhook URL exists, issue a new signing secret (shown once in the response). */
+      regenerateWebhookSecret?: boolean;
     },
   ) {
+    const existing = await this.prisma.organization.findUnique({ where: { id: orgId } });
+    if (!existing) throw new NotFoundException('Organization not found');
+
     const payload: {
       name?: string;
       logoUrl?: string;
@@ -32,7 +53,8 @@ export class SettingsService {
       bookingCurrency?: string;
       webhookUrl?: string | null;
       webhookSecret?: string | null;
-    } = { ...data };
+      webhookEnabled?: boolean;
+    } = {};
 
     if (data.name !== undefined) {
       const name = data.name.trim();
@@ -48,20 +70,41 @@ export class SettingsService {
       payload.bookingCurrency = raw;
     }
 
+    let revealedSigningSecret: string | undefined;
+
+    if (data.webhookEnabled !== undefined) {
+      payload.webhookEnabled = data.webhookEnabled;
+    }
+
     if (data.webhookUrl !== undefined) {
-      const url = data.webhookUrl?.trim() ?? '';
-      payload.webhookUrl = url.length > 0 ? url : null;
+      const url = this.normalizeWebhookUrl(data.webhookUrl);
+      payload.webhookUrl = url;
+      if (!url) {
+        payload.webhookSecret = null;
+      } else if (!existing.webhookSecret || data.regenerateWebhookSecret) {
+        revealedSigningSecret = generateWebhookSigningSecret();
+        payload.webhookSecret = revealedSigningSecret;
+      }
+    } else if (data.regenerateWebhookSecret) {
+      if (!existing.webhookUrl) {
+        throw new BadRequestException('Set a webhook URL before regenerating the signing secret');
+      }
+      revealedSigningSecret = generateWebhookSigningSecret();
+      payload.webhookSecret = revealedSigningSecret;
     }
 
-    if (data.webhookSecret !== undefined) {
-      const secret = data.webhookSecret?.trim() ?? '';
-      payload.webhookSecret = secret.length > 0 ? secret : null;
-    }
-
-    return this.prisma.organization.update({
+    const updated = await this.prisma.organization.update({
       where: { id: orgId },
       data: payload,
     });
+
+    const { webhookSecret, ...rest } = updated;
+    return {
+      ...rest,
+      hasWebhookSecret: Boolean(webhookSecret?.length),
+      webhookSecretPrefix: webhookSecret ? webhookSecret.slice(0, 14) : null,
+      ...(revealedSigningSecret ? { webhookSigningSecret: revealedSigningSecret } : {}),
+    };
   }
 
   async createLocation(
@@ -150,6 +193,22 @@ export class SettingsService {
     return {
       ...rest,
       hasWebhookSecret: Boolean(webhookSecret?.length),
+      webhookSecretPrefix: webhookSecret ? webhookSecret.slice(0, 14) : null,
     };
+  }
+
+  async getWebhookSigningSecret(orgId: string) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { webhookSecret: true, webhookUrl: true },
+    });
+    if (!org) throw new NotFoundException('Organization not found');
+    if (!org.webhookUrl?.trim()) {
+      throw new BadRequestException('Set a webhook URL first');
+    }
+    if (!org.webhookSecret) {
+      throw new BadRequestException('No signing secret configured — save the webhook URL or regenerate the secret');
+    }
+    return { webhookSigningSecret: org.webhookSecret };
   }
 }

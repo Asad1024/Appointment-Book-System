@@ -73,6 +73,9 @@ export class AuthService {
         'Please verify your email before signing in. Check your inbox for the verification link.',
       );
     }
+    if (user.isActive === false) {
+      throw new ForbiddenException('This account has been deactivated. Contact your administrator.');
+    }
     return this.setSession(res, user);
   }
 

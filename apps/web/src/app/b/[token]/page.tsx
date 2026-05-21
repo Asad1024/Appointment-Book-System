@@ -40,7 +40,7 @@ export default function ShortBookingPage() {
           <p className="font-display text-lg font-semibold text-text-primary">Link unavailable</p>
           <p className="mt-2 text-sm text-text-secondary">{error}</p>
           <p className="mt-2 text-xs text-text-muted">
-            Secure links expire after 15 minutes. Request a new link from your CRM.
+            This secure link has expired. Ask your contact to send a new booking link.
           </p>
           <Link href="/book" className="mt-6 inline-block">
             <Button variant="outline">Browse public booking</Button>
@@ -53,8 +53,9 @@ export default function ShortBookingPage() {
   if (!session) {
     return (
       <div className="space-y-4">
-        <Skeleton className="h-14 w-full max-w-md" />
-        <Skeleton className="h-96 w-full" />
+        <Skeleton className="h-16 w-72" />
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-[min(720px,70vh)] w-full rounded-xl" />
       </div>
     );
   }

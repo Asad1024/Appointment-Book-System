@@ -40,6 +40,8 @@ const MANAGERS = [
   UserRole.LOCATION_MANAGER,
 ];
 
+const ORG_ADMINS = [UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN];
+
 function providerScope(req: {
   user: { role: string; providerId?: string | null };
 }): string | undefined {
@@ -190,6 +192,17 @@ export class AppointmentsController {
       return (result as { csv: string }).csv;
     }
     return result;
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...ORG_ADMINS)
+  @Delete('admin/clear-all')
+  clearAllAppointments(
+    @Req() req: { user: { orgId: string } },
+    @Query('locationId') locationId?: string,
+  ) {
+    return this.appointments.clearAllForOrganization(req.user.orgId, { locationId });
   }
 
   @ApiBearerAuth()

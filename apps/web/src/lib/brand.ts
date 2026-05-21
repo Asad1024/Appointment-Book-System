@@ -5,3 +5,6 @@ export const PLATFORM = {
   description:
     'Book demos, manage team availability, and integrate scheduling across your products.',
 } as const;
+
+/** App logo in `apps/web/public` — used in shell UI and customer booking branding */
+export const PLATFORM_LOGO_PATH = '/logo.png';

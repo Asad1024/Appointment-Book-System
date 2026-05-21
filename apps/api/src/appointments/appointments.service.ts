@@ -514,6 +514,8 @@ export class AppointmentsService {
     serviceId: string;
     providerId: string;
     notes: string | null;
+    returnUrl: string | null;
+    source: string;
     reminderOffsetsMinutes: string;
     remindersSentMinutes: string;
     service: { name: string; description: string | null; durationMinutes: number };
@@ -524,6 +526,7 @@ export class AppointmentsService {
       address: string | null;
       phone: string | null;
       cancellationCutoffH: number;
+      organization?: { name: string; logoUrl: string | null };
     };
     review?: { rating: number; comment: string | null; customerName: string; createdAt: Date } | null;
   }) {
@@ -562,6 +565,10 @@ export class AppointmentsService {
       },
       provider: { name: appt.provider.name },
       customer: { name: appt.customer.name, email: appt.customer.email },
+      returnUrl: appt.returnUrl,
+      source: appt.source,
+      orgName: appt.location.organization?.name ?? null,
+      orgLogoUrl: appt.location.organization?.logoUrl ?? null,
       location: {
         name: appt.location.name,
         address: appt.location.address,
@@ -586,8 +593,12 @@ export class AppointmentsService {
         service: true,
         provider: true,
         customer: true,
-        location: true,
         review: true,
+        location: {
+          include: {
+            organization: { select: { name: true, logoUrl: true } },
+          },
+        },
       },
     });
     if (!appt) throw new NotFoundException('Appointment not found');
@@ -630,7 +641,14 @@ export class AppointmentsService {
           status: AppointmentStatus.CANCELLED,
           statusUpdatedAt: new Date(),
         },
-        include: { customer: true, service: true, provider: true, location: true },
+        include: {
+          customer: true,
+          service: true,
+          provider: true,
+          location: {
+            include: { organization: { select: { name: true, logoUrl: true } } },
+          },
+        },
       });
       await tx.appointmentEvent.create({
         data: { appointmentId: appt.id, action: AuditAction.CANCELLED },
@@ -696,7 +714,14 @@ export class AppointmentsService {
                 ? AppointmentStatus.PENDING
                 : AppointmentStatus.CONFIRMED,
           },
-          include: { customer: true, service: true, provider: true, location: true },
+          include: {
+            customer: true,
+            service: true,
+            provider: true,
+            location: {
+              include: { organization: { select: { name: true, logoUrl: true } } },
+            },
+          },
         });
         await tx.appointmentEvent.create({
           data: {
@@ -892,6 +917,13 @@ export class AppointmentsService {
       void this.calendarSync.onAppointmentCancelled(updated.id);
     } else {
       this.emitAppointmentUpdated(organizationId, updated.id, 'appointment.updated');
+      void this.webhooks.dispatchAppointmentStatusChanged(
+        organizationId,
+        buildAppointmentWebhookPayload(updated, {
+          previousStatus: appt.status,
+          newStatus: status,
+        }),
+      );
       void this.calendarSync.onAppointmentUpdated(updated.id);
     }
 
@@ -1027,5 +1059,41 @@ export class AppointmentsService {
     }
 
     return rows;
+  }
+
+  /** Testing helper: wipe all appointments (and waitlist) for an organization. */
+  async clearAllForOrganization(
+    organizationId: string,
+    options?: { locationId?: string },
+  ): Promise<{ deletedAppointments: number; deletedWaitlist: number }> {
+    const appointmentWhere = {
+      organizationId,
+      ...(options?.locationId ? { locationId: options.locationId } : {}),
+    };
+
+    const services = await this.prisma.service.findMany({
+      where: {
+        organizationId,
+        ...(options?.locationId ? { locationId: options.locationId } : {}),
+      },
+      select: { id: true },
+    });
+    const serviceIds = services.map((s) => s.id);
+
+    const [appointmentCount, waitlistCount] = await Promise.all([
+      this.prisma.appointment.count({ where: appointmentWhere }),
+      serviceIds.length > 0
+        ? this.prisma.waitlist.count({ where: { serviceId: { in: serviceIds } } })
+        : Promise.resolve(0),
+    ]);
+
+    await this.prisma.$transaction([
+      this.prisma.appointment.deleteMany({ where: appointmentWhere }),
+      ...(serviceIds.length > 0
+        ? [this.prisma.waitlist.deleteMany({ where: { serviceId: { in: serviceIds } } })]
+        : []),
+    ]);
+
+    return { deletedAppointments: appointmentCount, deletedWaitlist: waitlistCount };
   }
 }

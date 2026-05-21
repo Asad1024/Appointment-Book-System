@@ -110,16 +110,16 @@ export function ManageAppointmentDetails({
 
   return (
     <Card className="overflow-hidden shadow-sm">
-      <div className="border-b border-slate-100 bg-gradient-to-r from-brand-50/80 to-white px-6 py-5 dark:border-slate-800 dark:from-brand-950/30 dark:to-slate-900">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+      <div className="border-b border-slate-100 bg-gradient-to-r from-brand-50/80 to-white p-8 sm:p-10 dark:border-slate-800 dark:from-brand-950/30 dark:to-slate-900">
+        <div className="flex flex-wrap items-start justify-between gap-5">
+          <div className="min-w-0 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-brand-600">
               Your appointment
             </p>
-            <h2 className="mt-1 font-display text-2xl font-bold text-text-primary">
+            <h2 className="font-display text-2xl font-bold text-text-primary sm:text-3xl">
               {appt.service.name}
             </h2>
-            <p className="mt-1 text-sm text-text-secondary">
+            <p className="text-sm text-text-secondary">
               {mins} min · Reference #{shortId}
             </p>
           </div>
@@ -127,14 +127,14 @@ export function ManageAppointmentDetails({
         </div>
       </div>
 
-      <CardBody className="space-y-6">
+      <CardBody className="space-y-8 !p-8 sm:!p-10">
         {error ? <Alert variant="error">{error}</Alert> : null}
 
         {appt.service.description ? (
           <p className="text-sm leading-relaxed text-text-secondary">{appt.service.description}</p>
         ) : null}
 
-        <dl className="grid gap-4 sm:grid-cols-2">
+        <dl className="grid gap-5 sm:grid-cols-2 sm:gap-6">
           <DetailRow icon={User} label="Expert" value={appt.provider.name} />
           <DetailRow
             icon={MapPin}
@@ -298,12 +298,12 @@ function DetailRow({
   sub?: string;
 }) {
   return (
-    <div className="flex gap-3 rounded-xl border border-slate-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900/50">
-      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
-      <div className="min-w-0">
+    <div className="flex gap-4 rounded-xl border border-slate-100 bg-white p-6 sm:p-7 dark:border-slate-800 dark:bg-slate-900/50">
+      <Icon className="mt-1 h-5 w-5 shrink-0 text-brand-600" aria-hidden />
+      <div className="min-w-0 space-y-1.5">
         <dt className="text-xs font-medium uppercase tracking-wide text-text-muted">{label}</dt>
-        <dd className="mt-0.5 text-sm font-medium text-text-primary">{value}</dd>
-        {sub ? <dd className="mt-0.5 text-xs text-text-secondary">{sub}</dd> : null}
+        <dd className="text-sm font-medium text-text-primary">{value}</dd>
+        {sub ? <dd className="text-xs leading-relaxed text-text-secondary">{sub}</dd> : null}
       </div>
     </div>
   );

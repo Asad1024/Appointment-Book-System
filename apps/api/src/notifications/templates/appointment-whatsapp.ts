@@ -1,5 +1,6 @@
 import { NotificationType, formatReminderOffsetLabel } from '@pkg/shared-types';
 import type { AppointmentEmailData } from './appointment-emails';
+import { formatAppointmentWhenPlain } from './format-appointment-when';
 
 const SUBJECTS: Record<string, string> = {
   [NotificationType.BOOKING_CONFIRMATION]: 'Appointment confirmed',
@@ -36,9 +37,7 @@ export function appointmentWhatsAppMessage(
     title = SUBJECTS[NotificationType.REMINDER_1H];
     intro = INTROS[NotificationType.REMINDER_1H];
   }
-  const when = data.customerTimezone
-    ? `${data.startUtc} (${data.timezone}, your TZ: ${data.customerTimezone})`
-    : `${data.startUtc} (${data.timezone})`;
+  const when = formatAppointmentWhenPlain(data);
 
   const lines = [
     title,

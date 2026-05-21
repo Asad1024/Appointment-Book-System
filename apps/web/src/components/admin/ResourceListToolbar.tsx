@@ -19,20 +19,22 @@ type ResourceListToolbarProps = {
   searchValue: string;
   onSearchValueChange: (value: string) => void;
   searchPlaceholder: string;
-  showArchived: boolean;
-  onShowArchivedChange: (value: boolean) => void;
   summary: string;
   filters?: ResourceToolbarFilter[];
+  showArchivedToggle?: boolean;
+  showArchived?: boolean;
+  onShowArchivedChange?: (value: boolean) => void;
 };
 
 export function ResourceListToolbar({
   searchValue,
   onSearchValueChange,
   searchPlaceholder,
-  showArchived,
-  onShowArchivedChange,
   summary,
   filters = [],
+  showArchivedToggle = true,
+  showArchived = false,
+  onShowArchivedChange,
 }: ResourceListToolbarProps) {
   return (
     <Card className="mb-4 border-slate-200 shadow-sm dark:border-slate-800">
@@ -73,11 +75,19 @@ export function ResourceListToolbar({
           ))}
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <label className="inline-flex cursor-pointer items-center gap-2.5 text-sm font-medium text-text-secondary">
-            <Switch checked={showArchived} onCheckedChange={onShowArchivedChange} />
-            Show archived
-          </label>
+        <div
+          className={
+            showArchivedToggle
+              ? 'mt-4 flex flex-wrap items-center justify-between gap-3'
+              : 'mt-4 flex flex-wrap items-center justify-end gap-3'
+          }
+        >
+          {showArchivedToggle && onShowArchivedChange ? (
+            <label className="inline-flex cursor-pointer items-center gap-2.5 text-sm font-medium text-text-secondary">
+              <Switch checked={showArchived} onCheckedChange={onShowArchivedChange} />
+              Show archived
+            </label>
+          ) : null}
           <p className="text-sm text-text-muted">{summary}</p>
         </div>
       </CardBody>

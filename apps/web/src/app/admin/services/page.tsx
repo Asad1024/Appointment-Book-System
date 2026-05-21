@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Archive,
   CheckCircle2,
-  Clock3,
   HandCoins,
+  Layers3,
   Link2,
   MoreHorizontal,
   Pause,
@@ -18,7 +18,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiAuth } from '@/lib/api';
+import { bookingLinkSourceFromRole } from '@/lib/booking-link-attribution';
 import { useAdminLocation } from '@/lib/admin-location-context';
+import { useStaffSession } from '@/lib/useStaffSession';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { SlideOver } from '@/components/admin/SlideOver';
 import { ResourceListToolbar } from '@/components/admin/ResourceListToolbar';
@@ -81,14 +83,16 @@ const emptyForm = {
   name: '',
   durationMinutes: 30,
   priceDollars: '',
-  productKey: '',
   bufferBeforeMinutes: 0,
   bufferAfterMinutes: 10,
   description: '',
+  isActive: true,
 };
 
 export default function AdminServicesPage() {
+  const { user } = useStaffSession({ redirectToLogin: false });
   const { locationId } = useAdminLocation();
+  const linkSource = bookingLinkSourceFromRole(user?.role ?? 'admin');
   const [services, setServices] = useState<Service[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [linkedIds, setLinkedIds] = useState<Set<string>>(new Set());
@@ -110,6 +114,7 @@ export default function AdminServicesPage() {
   const [priceFilter, setPriceFilter] = useState<'all' | 'free' | 'paid'>('all');
   const [linkPanelOpen, setLinkPanelOpen] = useState(false);
   const [linkServiceId, setLinkServiceId] = useState<string | undefined>();
+  const [assigningAllProviders, setAssigningAllProviders] = useState(false);
 
   const load = useCallback(async () => {
     if (!locationId) return;
@@ -192,7 +197,11 @@ export default function AdminServicesPage() {
     });
   }, [archivedServices, priceFilter, searchValue, statusFilter]);
 
-  const activeCount = activeServices.length;
+  const totalServicesCount = activeServices.length;
+  const bookableCount = useMemo(
+    () => activeServices.filter((service) => service.isActive).length,
+    [activeServices],
+  );
   const archivedCount = archivedServices.length;
   const paidCount = useMemo(
     () => activeServices.filter((service) => (service.priceCents ?? 0) > 0).length,
@@ -230,10 +239,10 @@ export default function AdminServicesPage() {
       name: s.name,
       durationMinutes: s.durationMinutes,
       priceDollars: priceDollarsFromCents(s.priceCents),
-      productKey: s.productKey ?? '',
       bufferBeforeMinutes: s.bufferBeforeMinutes,
       bufferAfterMinutes: s.bufferAfterMinutes,
       description: s.description ?? '',
+      isActive: s.isActive,
     });
     void loadLinks(s);
     setPanelOpen(true);
@@ -245,26 +254,29 @@ export default function AdminServicesPage() {
     try {
       const priceCents = centsFromPriceDollars(form.priceDollars);
       if (editing) {
-        await apiAuth(`/catalog/services/${editing.id}`, {
+        await apiAuth<Service>(`/catalog/services/${editing.id}`, {
           method: 'PATCH',
           body: JSON.stringify({
             name: form.name,
             durationMinutes: form.durationMinutes,
             priceCents,
-            productKey: form.productKey || null,
             bufferBeforeMinutes: form.bufferBeforeMinutes,
             bufferAfterMinutes: form.bufferAfterMinutes,
             description: form.description,
+            isActive: form.isActive,
           }),
         });
         toast.success('Service updated');
+        setPanelOpen(false);
+        setOpenMenuId(null);
+        await load();
       } else {
         const org = await apiAuth<{ id: string; locations: { id: string }[] }>(
           '/settings/organization',
         );
         const loc = org.locations.find((l) => l.id === locationId);
         if (!loc) throw new Error('Select a location first');
-        await apiAuth('/catalog/services', {
+        const created = await apiAuth<Service>('/catalog/services', {
           method: 'POST',
           body: JSON.stringify({
             organizationId: org.id,
@@ -272,17 +284,26 @@ export default function AdminServicesPage() {
             name: form.name,
             durationMinutes: form.durationMinutes,
             priceCents,
-            productKey: form.productKey || undefined,
             bufferBeforeMinutes: form.bufferBeforeMinutes,
             bufferAfterMinutes: form.bufferAfterMinutes,
             description: form.description,
+            isActive: form.isActive,
           }),
         });
         toast.success('Service created');
+        setEditing(created);
+        setForm({
+          name: created.name,
+          durationMinutes: created.durationMinutes,
+          priceDollars: priceDollarsFromCents(created.priceCents),
+          bufferBeforeMinutes: created.bufferBeforeMinutes,
+          bufferAfterMinutes: created.bufferAfterMinutes,
+          description: created.description ?? '',
+          isActive: created.isActive,
+        });
+        void loadLinks(created);
+        await load();
       }
-      setPanelOpen(false);
-      setOpenMenuId(null);
-      await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -312,6 +333,28 @@ export default function AdminServicesPage() {
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to update assignment');
+    }
+  }
+
+  async function setAssignAllProviders(assignAll: boolean) {
+    if (!editing) return;
+    const locationProviders = providers.filter((p) => p.locationId === editing.locationId);
+    if (locationProviders.length === 0) return;
+
+    const providerIds = assignAll ? locationProviders.map((p) => p.id) : [];
+
+    setAssigningAllProviders(true);
+    try {
+      await apiAuth<{ providerIds: string[] }>(`/catalog/services/${editing.id}/providers`, {
+        method: 'PUT',
+        body: JSON.stringify({ providerIds }),
+      });
+      setLinkedIds(new Set(providerIds));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update assignments');
+      void loadLinks(editing);
+    } finally {
+      setAssigningAllProviders(false);
     }
   }
 
@@ -458,7 +501,19 @@ export default function AdminServicesPage() {
   function renderServiceRow(s: Service, mobile?: boolean) {
     if (mobile) {
       return (
-        <div key={s.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div
+          key={s.id}
+          role="button"
+          tabIndex={0}
+          className="cursor-pointer rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-brand-200 hover:bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-brand-800/60 dark:hover:bg-slate-800/50"
+          onClick={() => openEdit(s)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              openEdit(s);
+            }
+          }}
+        >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate font-semibold text-text-primary">{s.name}</p>
@@ -467,7 +522,11 @@ export default function AdminServicesPage() {
               </p>
               {s.description && <p className="mt-1 truncate text-xs text-text-muted">{s.description}</p>}
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div
+              className="flex shrink-0 items-center gap-1.5"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
               <CatalogStatusBadge isActive={s.isActive} archivedAt={s.archivedAt} />
               {renderRowActions(s, 'mobile')}
             </div>
@@ -477,7 +536,11 @@ export default function AdminServicesPage() {
     }
 
     return (
-      <tr key={s.id} className="group transition-colors hover:bg-surface-muted/70">
+      <tr
+        key={s.id}
+        className="group cursor-pointer transition-colors hover:bg-surface-muted/70"
+        onClick={() => openEdit(s)}
+      >
         <td className="px-4 py-3 align-top">
           <p className="font-semibold text-text-primary">{s.name}</p>
           {s.description && <p className="mt-0.5 max-w-[340px] truncate text-xs text-text-secondary">{s.description}</p>}
@@ -485,12 +548,14 @@ export default function AdminServicesPage() {
         <td className="px-4 py-3 text-text-primary">{s.durationMinutes} min</td>
         <td className="px-4 py-3 text-text-primary">{formatServicePrice(s.priceCents, bookingCurrency)}</td>
         <td className="px-4 py-3 text-text-secondary">
-          <span className="block truncate">{s.productKey || '-'}</span>
+          <span className="block truncate font-mono text-xs">{s.productKey || '—'}</span>
         </td>
         <td className="px-4 py-3">
           <CatalogStatusBadge isActive={s.isActive} archivedAt={s.archivedAt} />
         </td>
-        <td className="px-4 py-3 text-right">{renderRowActions(s, 'desktop')}</td>
+        <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+          {renderRowActions(s, 'desktop')}
+        </td>
       </tr>
     );
   }
@@ -504,7 +569,7 @@ export default function AdminServicesPage() {
                 <th className="w-[32%] px-4 py-3">Name</th>
                 <th className="w-[14%] px-4 py-3">Duration</th>
                 <th className="w-[14%] px-4 py-3">Price</th>
-                <th className="w-[18%] px-4 py-3">Product key</th>
+                <th className="w-[18%] px-4 py-3">Integration ID</th>
                 <th className="w-[12%] px-4 py-3">Status</th>
                 <th className="w-[10%] px-4 py-3 text-right">Actions</th>
               </tr>
@@ -545,10 +610,22 @@ export default function AdminServicesPage() {
           <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <Card className="border-slate-200 shadow-sm dark:border-slate-800">
               <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Active services</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Total services</p>
+                <p className="mt-2 flex items-center gap-2 text-3xl font-semibold text-text-primary">
+                  <Layers3 className="h-5 w-5 text-brand-500" />
+                  {totalServicesCount}
+                </p>
+              </CardBody>
+            </Card>
+            <Card className="border-slate-200 shadow-sm dark:border-slate-800">
+              <CardBody className="p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Active</p>
                 <p className="mt-2 flex items-center gap-2 text-3xl font-semibold text-text-primary">
                   <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                  {activeCount}
+                  {bookableCount}
+                </p>
+                <p className="mt-1 text-xs text-text-muted">
+                  {totalServicesCount - bookableCount} paused
                 </p>
               </CardBody>
             </Card>
@@ -561,28 +638,15 @@ export default function AdminServicesPage() {
                 </p>
               </CardBody>
             </Card>
-            <Card className="border-slate-200 shadow-sm dark:border-slate-800">
-              <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Default duration</p>
-                <p className="mt-2 flex items-center gap-2 text-3xl font-semibold text-text-primary">
-                  <Clock3 className="h-5 w-5 text-brand-500" />
-                  {activeCount > 0
-                    ? `${Math.round(
-                        activeServices.reduce((sum, service) => sum + service.durationMinutes, 0) / activeCount,
-                      )}m`
-                    : '0m'}
-                </p>
-              </CardBody>
-            </Card>
           </div>
 
           <ResourceListToolbar
             searchValue={searchValue}
             onSearchValueChange={setSearchValue}
-            searchPlaceholder="Search by name, product key, or description..."
+            searchPlaceholder="Search by name, integration ID, or description..."
             showArchived={showArchived}
             onShowArchivedChange={setShowArchived}
-            summary={`${activeCount} active${showArchived ? ` - ${archivedCount} archived` : ''}`}
+            summary={`${totalServicesCount} service${totalServicesCount === 1 ? '' : 's'}${showArchived && archivedCount > 0 ? ` · ${archivedCount} archived` : ''}`}
             filters={[
               {
                 id: 'services-status',
@@ -611,57 +675,57 @@ export default function AdminServicesPage() {
             ]}
           />
 
-          <Card className="border-slate-200 shadow-sm dark:border-slate-800">
-            <CardBody className="p-4 sm:p-5">
-              {loading ? (
-                <div className="space-y-3">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <Skeleton key={i} className="h-12 w-full" />
-                  ))}
-                </div>
-              ) : activeCount === 0 && archivedCount === 0 ? (
-                <EmptyState
-                  icon={Scissors}
-                  title="No services yet"
-                  description="Create your first service to start accepting bookings."
-                  action={
-                    <Button onClick={openNew}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      New service
-                    </Button>
-                  }
-                />
-              ) : filteredActiveServices.length === 0 &&
-                (!showArchived || filteredArchivedServices.length === 0) ? (
-                <EmptyState
-                  icon={Scissors}
-                  title="No services match these filters"
-                  description="Try a different search or filter combination."
-                />
-              ) : (
+          {loading ? (
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : totalServicesCount === 0 && archivedCount === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+              <EmptyState
+                icon={Scissors}
+                title="No services yet"
+                description="Create your first service to start accepting bookings."
+                action={
+                  <Button onClick={openNew}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    New service
+                  </Button>
+                }
+              />
+            </div>
+          ) : filteredActiveServices.length === 0 &&
+            (!showArchived || filteredArchivedServices.length === 0) ? (
+            <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+              <EmptyState
+                icon={Scissors}
+                title="No services match these filters"
+                description="Try a different search or filter combination."
+              />
+            </div>
+          ) : (
+            <>
+              {filteredActiveServices.length > 0 && (
                 <>
-                  {filteredActiveServices.length > 0 && (
-                    <>
-                      {renderDesktopTable(filteredActiveServices)}
-                      <div className="space-y-3 md:hidden">
-                        {filteredActiveServices.map((s) => renderServiceRow(s, true))}
-                      </div>
-                    </>
-                  )}
-
-                  {showArchived && filteredArchivedServices.length > 0 && (
-                    <div className="mt-8 border-t border-slate-100 pt-6 dark:border-slate-800">
-                      <h3 className="mb-3 text-sm font-semibold text-text-secondary">Archived</h3>
-                      {renderDesktopTable(filteredArchivedServices)}
-                      <div className="space-y-3 md:hidden">
-                        {filteredArchivedServices.map((s) => renderServiceRow(s, true))}
-                      </div>
-                    </div>
-                  )}
+                  {renderDesktopTable(filteredActiveServices)}
+                  <div className="space-y-3 md:hidden">
+                    {filteredActiveServices.map((s) => renderServiceRow(s, true))}
+                  </div>
                 </>
               )}
-            </CardBody>
-          </Card>
+
+              {showArchived && filteredArchivedServices.length > 0 && (
+                <div className="mt-8 border-t border-slate-100 pt-6 dark:border-slate-800">
+                  <h3 className="mb-3 text-sm font-semibold text-text-secondary">Archived</h3>
+                  {renderDesktopTable(filteredArchivedServices)}
+                  <div className="space-y-3 md:hidden">
+                    {filteredArchivedServices.map((s) => renderServiceRow(s, true))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -688,6 +752,12 @@ export default function AdminServicesPage() {
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   required
                 />
+                {editing?.productKey ? (
+                  <p className="mt-1.5 text-xs text-text-muted">
+                    Slug:{' '}
+                    <span className="font-mono text-text-secondary">{editing.productKey}</span>
+                  </p>
+                ) : null}
               </div>
               <div>
                 <Label>Duration (minutes)</Label>
@@ -711,13 +781,6 @@ export default function AdminServicesPage() {
                 <p className="mt-1 text-xs text-text-muted">
                   Paid services redirect customers to Stripe Checkout when they book.
                 </p>
-              </div>
-              <div>
-                <Label>Product key</Label>
-                <Input
-                  value={form.productKey}
-                  onChange={(e) => setForm({ ...form, productKey: e.target.value })}
-                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -747,26 +810,65 @@ export default function AdminServicesPage() {
                 />
               </div>
 
-              {editing ? (
-                <div className="rounded-xl border border-slate-100 bg-surface-subtle p-4 dark:border-slate-800">
-                  <h3 className="text-sm font-semibold text-text-primary">Provider assignments</h3>
-                  <p className="mt-0.5 text-xs text-text-secondary">
-                    Which providers can perform this service
+              <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-surface-subtle px-4 py-3 dark:border-slate-800">
+                <div>
+                  <p className="text-sm font-semibold text-text-primary">Active</p>
+                  <p className="text-xs text-text-secondary">
+                    Paused services stay in your catalog but are hidden from booking
                   </p>
-                  <ul className="mt-4 space-y-3">
-                    {providers
-                      .filter((p) => p.locationId === editing.locationId)
-                      .map((p) => (
-                        <li key={p.id} className="flex items-center justify-between gap-3">
-                          <span className="text-sm">{p.name}</span>
-                          <Switch
-                            checked={linkedIds.has(p.id)}
-                            onCheckedChange={(c) => void toggleProvider(p.id, c)}
-                          />
-                        </li>
-                      ))}
-                  </ul>
                 </div>
+                <Switch
+                  checked={form.isActive}
+                  onCheckedChange={(isActive) => setForm({ ...form, isActive })}
+                />
+              </div>
+
+              {editing ? (
+                (() => {
+                  const locationProviders = providers.filter(
+                    (p) => p.locationId === editing.locationId,
+                  );
+                  const allAssigned =
+                    locationProviders.length > 0 &&
+                    locationProviders.every((p) => linkedIds.has(p.id));
+                  const someAssigned = locationProviders.some((p) => linkedIds.has(p.id));
+
+                  return (
+                    <div className="rounded-xl border border-slate-100 bg-surface-subtle p-4 dark:border-slate-800">
+                      <h3 className="text-sm font-semibold text-text-primary">Provider assignments</h3>
+                      <p className="mt-0.5 text-xs text-text-secondary">
+                        Which providers can perform this service
+                      </p>
+                      {locationProviders.length > 0 && (
+                        <label className="mt-4 flex cursor-pointer items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                            checked={allAssigned}
+                            ref={(el) => {
+                              if (el) el.indeterminate = someAssigned && !allAssigned;
+                            }}
+                            disabled={assigningAllProviders}
+                            onChange={(e) => void setAssignAllProviders(e.target.checked)}
+                          />
+                          <span className="text-sm font-medium text-text-primary">Assign to all</span>
+                        </label>
+                      )}
+                      <ul className="mt-3 space-y-3">
+                        {locationProviders.map((p) => (
+                          <li key={p.id} className="flex items-center justify-between gap-3">
+                            <span className="text-sm">{p.name}</span>
+                            <Switch
+                              checked={linkedIds.has(p.id)}
+                              disabled={assigningAllProviders}
+                              onCheckedChange={(c) => void toggleProvider(p.id, c)}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })()
               ) : (
                 <div className="rounded-xl border border-slate-100 bg-surface-subtle p-4 dark:border-slate-800">
                   <h3 className="text-sm font-semibold text-text-primary">Provider assignments</h3>
@@ -807,6 +909,7 @@ export default function AdminServicesPage() {
           onOpenChange={setLinkPanelOpen}
           locationId={locationId}
           initialServiceId={linkServiceId}
+          sourceDefault={linkSource}
         />
       )}
 

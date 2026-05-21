@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -37,6 +38,16 @@ export class PartnerApiKeysController {
     @Body() body: { name?: string },
   ) {
     return this.apiKeys.create(req.user.orgId, body.name ?? 'Integration key', req.user.id);
+  }
+
+  @Roles(...KEY_ADMINS)
+  @Patch(':id')
+  update(
+    @Req() req: { user: { orgId: string } },
+    @Param('id') id: string,
+    @Body() body: { isActive?: boolean },
+  ) {
+    return this.apiKeys.update(req.user.orgId, id, body);
   }
 
   @Roles(...KEY_ADMINS)

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { generateAvailableSlots, canReschedule } from './slots';
+import { generateAvailableSlots, generateSlotGrid, canReschedule } from './slots';
 
 describe('generateAvailableSlots', () => {
   it('returns slots within working hours', () => {
@@ -48,6 +48,50 @@ describe('generateAvailableSlots', () => {
     });
     const at10 = slots.find((s) => s.startUtc.includes('T10:00:00'));
     assert.equal(at10, undefined);
+  });
+});
+
+describe('generateSlotGrid', () => {
+  const baseInput = {
+    timezone: 'Asia/Dubai',
+    fromDate: '2027-05-20',
+    toDate: '2027-05-20',
+    weeklyRules: [{ dayOfWeek: 4, startTime: '09:00', endTime: '17:00' }],
+    blockedIntervals: [],
+    bookedIntervals: [
+      {
+        startUtc: new Date('2027-05-20T11:00:00.000Z'),
+        endUtc: new Date('2027-05-20T11:45:00.000Z'),
+      },
+    ],
+    serviceDurationMinutes: 60,
+    policy: {
+      leadTimeMinutes: 0,
+      bookingWindowDays: 9999,
+      bufferBeforeMinutes: 0,
+      bufferAfterMinutes: 0,
+      slotIntervalMinutes: 15,
+    },
+  };
+
+  it('locks starts inside an appointment but hides earlier overlapping starts', () => {
+    const slots = generateSlotGrid(baseInput);
+
+    const at230 = slots.find((s) => s.startUtc === '2027-05-20T10:30:00.000Z');
+    const at245 = slots.find((s) => s.startUtc === '2027-05-20T10:45:00.000Z');
+    assert.equal(at230, undefined);
+    assert.equal(at245, undefined);
+
+    const at3 = slots.find((s) => s.startUtc === '2027-05-20T11:00:00.000Z');
+    assert.equal(at3?.status, 'booked');
+
+    const at315 = slots.find((s) => s.startUtc === '2027-05-20T11:15:00.000Z');
+    const at330 = slots.find((s) => s.startUtc === '2027-05-20T11:30:00.000Z');
+    assert.equal(at315, undefined);
+    assert.equal(at330, undefined);
+
+    const at345 = slots.find((s) => s.startUtc === '2027-05-20T11:45:00.000Z');
+    assert.equal(at345?.status, 'available');
   });
 });
 

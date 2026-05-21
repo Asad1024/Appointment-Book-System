@@ -16,6 +16,10 @@ export type ManageAppointment = {
   remindersEnabled?: boolean;
   reminders?: ReminderScheduleItem[];
   canCancelOrReschedule?: boolean;
+  returnUrl?: string | null;
+  source?: string | null;
+  orgName?: string | null;
+  orgLogoUrl?: string | null;
   service: { name: string; description?: string | null; durationMinutes?: number };
   provider: { name: string };
   customer: { name: string; email: string };

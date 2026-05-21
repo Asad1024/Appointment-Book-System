@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { buildPublicBookingEventUrl } from '../common/booking-link.util';
+import { buildPublicBookingEventUrl, buildShortBookingSessionUrl } from '../common/booking-link.util';
+import { buildAppointmentWebhookPayload } from '../integration/appointment-webhook-payload';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePartnerBookingLinkDto } from './dto/create-booking-link.dto';
 import { CreatePartnerBookingSessionDto } from './dto/create-booking-session.dto';
@@ -128,11 +129,11 @@ export class PartnerService {
       },
     });
 
-    const webUrl = (process.env.WEB_URL ?? 'http://localhost:3002').replace(/\/$/, '');
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
     return {
       sessionId: session.id,
       token: session.token,
-      url: `${webUrl}/b/${session.token}`,
+      url: buildShortBookingSessionUrl(webUrl, session.token),
       expiresAt: expiresAt.toISOString(),
       mode: dto.serviceId && dto.providerId ? ('calendar' as const) : ('picker' as const),
     };
@@ -212,6 +213,24 @@ export class PartnerService {
       providerName: provider.name,
       durationMinutes: service.durationMinutes,
     };
+  }
+
+  /** Partner CRM — resolve view links for an appointment (same fields as webhook `data`). */
+  async getAppointment(partner: PartnerAuthContext, appointmentId: string) {
+    const appt = await this.prisma.appointment.findFirst({
+      where: {
+        id: appointmentId,
+        organizationId: partner.organizationId,
+      },
+      include: {
+        customer: { select: { email: true, name: true } },
+        service: { select: { name: true } },
+        provider: { select: { name: true } },
+      },
+    });
+    if (!appt) throw new NotFoundException('Appointment not found');
+
+    return buildAppointmentWebhookPayload(appt);
   }
 
   async listBookingLinkOptions(partner: PartnerAuthContext, locationId: string) {

@@ -16,19 +16,32 @@ function formatErrorMessage(body: unknown, fallback: string): string {
   return fallback;
 }
 
+function networkErrorMessage(path: string, cause: unknown): string {
+  const hint =
+    typeof window !== 'undefined'
+      ? ` (${window.location.origin} → ${API_URL})`
+      : '';
+  const detail = cause instanceof Error ? cause.message : 'Network error';
+  return `Cannot reach API at ${API_URL}${path}${hint}. Is the API running on port 3003? ${detail}`;
+}
+
 export async function ensureCsrf(): Promise<string> {
   if (csrfToken) return csrfToken;
   if (!csrfPromise) {
-    csrfPromise = fetch(`${API_URL}/auth/csrf`, { credentials: 'include' })
-      .then(async (res) => {
-        if (!res.ok) throw new Error('Failed to load CSRF token');
-        const data = (await res.json()) as { token: string };
-        csrfToken = data.token;
-        return csrfToken;
-      })
-      .finally(() => {
-        csrfPromise = null;
-      });
+    csrfPromise = (async () => {
+      let res: Response;
+      try {
+        res = await fetch(`${API_URL}/auth/csrf`, { credentials: 'include' });
+      } catch (cause) {
+        throw new Error(networkErrorMessage('/auth/csrf', cause));
+      }
+      if (!res.ok) throw new Error('Failed to load CSRF token');
+      const data = (await res.json()) as { token: string };
+      csrfToken = data.token;
+      return csrfToken;
+    })().finally(() => {
+      csrfPromise = null;
+    });
   }
   return csrfPromise;
 }
@@ -94,11 +107,16 @@ async function handleResponse<T>(res: Response, requestPath?: string): Promise<T
 }
 
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: await buildHeaders(options),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      credentials: 'include',
+      headers: await buildHeaders(options),
+    });
+  } catch (cause) {
+    throw new Error(networkErrorMessage(path, cause));
+  }
   return handleResponse<T>(res, path);
 }
 

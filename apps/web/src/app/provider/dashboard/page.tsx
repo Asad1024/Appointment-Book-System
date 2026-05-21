@@ -38,8 +38,11 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useRealtimeEvents } from '@/lib/useRealtimeEvents';
+import type { CalendarHourRange } from '@/components/calendar/calendar-utils';
 import { GoogleCalendarConnect } from '@/components/provider/GoogleCalendarConnect';
 import { GenerateBookingLinkSlideOver } from '@/components/admin/GenerateBookingLinkSlideOver';
+import { bookingLinkSourceFromRole } from '@/lib/booking-link-attribution';
+import { UserRole } from '@pkg/shared-types';
 
 type Appointment = CalendarAppointment;
 type DashboardView = 'list' | 'calendar';
@@ -51,7 +54,7 @@ function weekStartMonday(d: Date) {
 }
 
 export default function ProviderDashboardPage() {
-  const { profile } = useProviderSession();
+  const { profile, providerId } = useProviderSession();
   const [dashboardView, setDashboardView] = useState<DashboardView>(() => {
     if (typeof window === 'undefined') return 'calendar';
     return (localStorage.getItem('provider_dashboard_view') as DashboardView) || 'calendar';
@@ -64,6 +67,7 @@ export default function ProviderDashboardPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [linkPanelOpen, setLinkPanelOpen] = useState(false);
+  const [scheduleBounds, setScheduleBounds] = useState<CalendarHourRange | null>(null);
 
   const weekEnd = useMemo(() => format(addDays(parseISO(weekStart), 6), 'yyyy-MM-dd'), [weekStart]);
   const tz = profile?.location?.timezone ?? 'UTC';
@@ -98,6 +102,24 @@ export default function ProviderDashboardPage() {
   useEffect(() => {
     void loadAppointments();
   }, [loadAppointments]);
+
+  useEffect(() => {
+    if (!providerId) {
+      setScheduleBounds(null);
+      return;
+    }
+    let cancelled = false;
+    apiAuth<CalendarHourRange>(`/catalog/providers/${providerId}/calendar-bounds`)
+      .then((bounds) => {
+        if (!cancelled) setScheduleBounds(bounds);
+      })
+      .catch(() => {
+        if (!cancelled) setScheduleBounds(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [providerId]);
 
   useRealtimeEvents((event) => {
     if (
@@ -209,6 +231,7 @@ export default function ProviderDashboardPage() {
           colorMode="status"
           detailPathPrefix="/provider/appointments"
           timezone={tz}
+          scheduleBounds={scheduleBounds}
           onRangeChange={(from, to) => {
             setRangeFrom(from);
             setRangeTo(to);
@@ -333,7 +356,7 @@ export default function ProviderDashboardPage() {
           onOpenChange={setLinkPanelOpen}
           locationId={profile.locationId}
           initialProviderId={profile.id}
-          sourceDefault="provider"
+          sourceDefault={bookingLinkSourceFromRole(UserRole.PROVIDER)}
           title="My booking link"
           description="Send this link to customers so they book with you for a specific service."
         />

@@ -12,13 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { useAuthUser } from '@/lib/useAuthUser';
 import { parseBookingPrefill } from '@/lib/booking-prefill';
-
-function isPartnerFlow(search: URLSearchParams): boolean {
-  return (
-    search.get('partner') === '1' ||
-    (search.get('source') === 'leadsreach' && Boolean(search.get('returnUrl')))
-  );
-}
+import { isPartnerFlowFromSearch } from '@/lib/partner-flow';
 
 function EventBookContent({ partner }: { partner: boolean }) {
   const search = useSearchParams();
@@ -84,7 +78,7 @@ function PartnerEventShell({ children }: { children: React.ReactNode }) {
 
 function EventBookGate() {
   const search = useSearchParams();
-  const partner = isPartnerFlow(search);
+  const partner = isPartnerFlowFromSearch(search);
 
   if (partner) {
     return (

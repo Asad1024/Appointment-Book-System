@@ -28,7 +28,7 @@ export function ManageAppointmentSidebar({
   return (
     <aside className="space-y-4">
       <Card>
-        <CardBody className="space-y-3">
+        <CardBody className="space-y-4 !p-8 sm:!p-10">
           <h3 className="text-sm font-semibold text-text-primary">Quick actions</h3>
           <Button variant="outline" className="w-full justify-start gap-2" onClick={onAddToGoogle}>
             <CalendarPlus className="h-4 w-4" />
@@ -53,7 +53,7 @@ export function ManageAppointmentSidebar({
       </Card>
 
       <Card>
-        <CardBody className="space-y-3 text-sm">
+        <CardBody className="space-y-4 !p-8 text-sm sm:!p-10">
           <h3 className="flex items-center gap-2 font-semibold text-text-primary">
             <HelpCircle className="h-4 w-4 text-brand-600" />
             Policies
@@ -76,7 +76,7 @@ export function ManageAppointmentSidebar({
 
       {(appt.location.address || appt.location.phone) && (
         <Card>
-          <CardBody className="space-y-2 text-sm">
+          <CardBody className="space-y-3 !p-8 text-sm sm:!p-10">
             <h3 className="font-semibold text-text-primary">Location contact</h3>
             {appt.location.address && (
               <p className="text-text-secondary">{appt.location.address}</p>

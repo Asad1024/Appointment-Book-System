@@ -6,7 +6,10 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { formatInTimeZone } from 'date-fns-tz';
 import { ChevronRight, Home } from 'lucide-react';
 import { toast } from 'sonner';
+import { PartnerBookingChrome } from '@/components/booking/PartnerBookingChrome';
+import { PartnerBookingFooter } from '@/components/booking/PartnerBookingFooter';
 import { api } from '@/lib/api';
+import { isPartnerManageContext } from '@/lib/partner-flow';
 import { Card, CardBody } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
@@ -205,32 +208,114 @@ function ManagePageContent() {
   const canCancelOrReschedule = appt?.canCancelOrReschedule !== false;
   const canChangeTime = canModify && canCancelOrReschedule;
   const reschedulesLeft = appt ? Math.max(0, 3 - appt.rescheduleCount) : 0;
+  const partner = isPartnerManageContext(searchParams, appt);
+
+  const partnerShell = (body: React.ReactNode) => (
+    <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm sm:p-10 lg:p-12 dark:border-slate-800 dark:bg-slate-950">
+      {body}
+    </div>
+  );
 
   return (
-    <div className="bg-surface-subtle pb-16">
-      <div className="border-b border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-950">
-        <div className={cn(pageContainer, 'py-6')}>
-          <nav className="flex flex-wrap items-center gap-1 text-sm text-text-muted" aria-label="Breadcrumb">
-            <Link href="/" className="inline-flex items-center gap-1 hover:text-brand-600">
-              <Home className="h-4 w-4" />
-              Home
-            </Link>
-            <ChevronRight className="h-4 w-4" />
-            <span className="text-text-secondary">Manage appointment</span>
-          </nav>
-          <h1 className="mt-3 font-display text-2xl font-bold text-text-primary sm:text-3xl">
-            Manage your appointment
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm text-text-secondary sm:text-base">
-            View details, reschedule, cancel, or add this session to your calendar. No sign-in required —
-            this link is private to you.
-          </p>
-        </div>
-      </div>
+    <div className={cn('pb-16', partner ? '' : 'bg-surface-subtle')}>
+      {partner ? (
+        partnerShell(
+          <>
+            <PartnerBookingChrome orgName={appt?.orgName ?? undefined} />
+            <div className="mt-8 space-y-2">
+              <h1 className="font-display text-xl font-bold text-text-primary sm:text-2xl">
+                Your appointment
+              </h1>
+              <p className="max-w-2xl text-sm text-text-secondary">
+                View details, reschedule, or cancel. No sign-in required.
+              </p>
+            </div>
 
+            <div className="mt-8">
+              {pageLoading && (
+                <div className="space-y-6">
+                  <Skeleton className="h-10 w-1/2" />
+                  <Skeleton className="h-64 w-full rounded-2xl" />
+                </div>
+              )}
+
+              {error && !appt && !pageLoading && (
+                <Card className="max-w-lg">
+                  <CardBody>
+                    <Alert variant="error">{error}</Alert>
+                  </CardBody>
+                </Card>
+              )}
+
+              {appt && !pageLoading && (
+                <ManageAppointmentDetails
+                  appt={appt}
+                  token={token ?? ''}
+                  reviewMeta={reviewMeta}
+                  error={error}
+                  loading={loading}
+                  rescheduleMode={rescheduleMode}
+                  rescheduleRef={rescheduleRef}
+                  selectedDate={selectedDate}
+                  slots={displaySlots}
+                  newStartUtc={newStartUtc}
+                  customerTimezone={customerTimezone || appt.customerTimezone || appt.timezone}
+                  onCustomerTimezoneChange={(tz) => {
+                    setCustomerTimezone(tz);
+                    const anchorUtc = newStartUtc || appt.startUtc;
+                    setSelectedDate(formatInTimeZone(new Date(anchorUtc), tz, 'yyyy-MM-dd'));
+                  }}
+                  minBookDate={minBookDate}
+                  maxBookDate={maxBookDate}
+                  accentColor={BOOKING_ACCENT}
+                  onRescheduleMode={openRescheduleMode}
+                  onCloseReschedule={closeRescheduleMode}
+                  onDateChange={(d) => {
+                    setSelectedDate(d);
+                    setNewStartUtc('');
+                  }}
+                  onSlotSelect={setNewStartUtc}
+                  onReschedule={() => void reschedule()}
+                  canChangeTime={canChangeTime}
+                  onAddToGoogle={addToGoogleCalendar}
+                  onDownloadIcs={downloadIcs}
+                  onCancelClick={() => setCancelOpen(true)}
+                  onReviewSubmitted={() => {
+                    void api<ReviewMeta>(`/reviews/manage/${token}`).then(setReviewMeta);
+                  }}
+                />
+              )}
+            </div>
+
+            <div className="mt-10 border-t border-slate-100 pt-8 dark:border-slate-800">
+              <PartnerBookingFooter returnUrl={appt?.returnUrl} />
+            </div>
+          </>,
+        )
+      ) : (
+        <>
+        <div className="border-b border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-950">
+          <div className={cn(pageContainer, 'py-6')}>
+            <nav className="flex flex-wrap items-center gap-1 text-sm text-text-muted" aria-label="Breadcrumb">
+              <Link href="/" className="inline-flex items-center gap-1 hover:text-brand-600">
+                <Home className="h-4 w-4" />
+                Home
+              </Link>
+              <ChevronRight className="h-4 w-4" />
+              <span className="text-text-secondary">Manage appointment</span>
+            </nav>
+            <h1 className="mt-3 font-display text-2xl font-bold text-text-primary sm:text-3xl">
+              Manage your appointment
+            </h1>
+            <p className="mt-1 max-w-2xl text-sm text-text-secondary sm:text-base">
+              View details, reschedule, cancel, or add this session to your calendar. No sign-in required —
+              this link is private to you.
+            </p>
+          </div>
+        </div>
       <div className={cn(pageContainer, 'py-8')}>
         {pageLoading && (
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-8 lg:grid-cols-3">
             <div className="space-y-4 lg:col-span-2">
               <Skeleton className="h-10 w-1/2" />
               <Skeleton className="h-64 w-full rounded-2xl" />
@@ -251,7 +336,7 @@ function ManagePageContent() {
         )}
 
         {appt && !pageLoading && (
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-8 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <ManageAppointmentDetails
                 appt={appt}
@@ -304,6 +389,8 @@ function ManagePageContent() {
           </div>
         )}
       </div>
+        </>
+      )}
 
       <ConfirmDialog
         open={cancelOpen}

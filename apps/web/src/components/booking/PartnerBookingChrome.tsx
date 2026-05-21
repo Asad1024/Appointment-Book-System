@@ -2,23 +2,19 @@
 
 import { Logo } from '@/components/Logo';
 
-export function PartnerBookingChrome({
-  orgName,
-  logoUrl,
-}: {
-  orgName?: string;
-  logoUrl?: string | null;
-}) {
+/** Platform logo on the left; organization on the right. */
+export function PartnerBookingChrome({ orgName }: { orgName?: string }) {
   return (
-    <header className="mb-4 flex items-center gap-2.5">
-      {logoUrl ? (
-        <img src={logoUrl} alt="" className="h-8 object-contain" />
-      ) : (
-        <Logo href={undefined} className="pointer-events-none scale-90" />
-      )}
-      <p className="font-display text-sm font-semibold text-slate-800 dark:text-slate-100">
-        {orgName ?? 'Appointment'}
-      </p>
+    <header className="mb-6 flex items-start justify-between gap-6">
+      <Logo href={undefined} className="pointer-events-none shrink-0" markSize={28} />
+      {orgName ? (
+        <div className="min-w-0 text-right">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Organization
+          </p>
+          <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{orgName}</p>
+        </div>
+      ) : null}
     </header>
   );
 }

@@ -20,6 +20,12 @@ export class SettingsController {
   }
 
   @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
+  @Get('webhook-secret')
+  getWebhookSecret(@Req() req: { user: { orgId: string } }) {
+    return this.settings.getWebhookSigningSecret(req.user.orgId);
+  }
+
+  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
   @Patch('organization')
   updateOrg(
     @Req() req: { user: { orgId: string } },
@@ -30,7 +36,8 @@ export class SettingsController {
       primaryColor?: string;
       bookingCurrency?: string;
       webhookUrl?: string | null;
-      webhookSecret?: string | null;
+      webhookEnabled?: boolean;
+      regenerateWebhookSecret?: boolean;
     },
   ) {
     return this.settings.updateOrganization(req.user.orgId, body);

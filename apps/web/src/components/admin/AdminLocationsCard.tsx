@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { apiAuth } from '@/lib/api';
 import { useAdminLocation } from '@/lib/admin-location-context';
 import { Button } from '@/components/ui/button';
+import { TimezoneSelect } from '@/components/shared/TimezoneSelect';
 import { Card, CardBody } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -143,14 +144,10 @@ export function AdminLocationsCard({ locations, onLocationsChange }: Props) {
                 required
               />
             </div>
-            <div>
-              <Label>Timezone</Label>
-              <Input
-                value={newLoc.timezone}
-                onChange={(e) => setNewLoc({ ...newLoc, timezone: e.target.value })}
-                placeholder="Asia/Dubai"
-              />
-            </div>
+            <TimezoneSelect
+              value={newLoc.timezone}
+              onValueChange={(timezone) => setNewLoc({ ...newLoc, timezone })}
+            />
             <div>
               <Label>Address (optional)</Label>
               <Input

@@ -4,6 +4,9 @@ import { useMemo, useState } from 'react';
 import { DayPicker } from 'react-day-picker';
 import { format, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
+import { formatTimezoneLabel } from '@/lib/booking-dates';
+import { timezoneOptionsFor } from '@/lib/booking-timezone';
+import { Lock } from 'lucide-react';
 import clsx from 'clsx';
 import 'react-day-picker/style.css';
 import { Label } from '@/components/ui/label';
@@ -17,40 +20,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-type Slot = { startUtc: string; endUtc: string };
-
-const TIMEZONE_OPTIONS = [
-  'Pacific/Honolulu',
-  'America/Anchorage',
-  'America/Los_Angeles',
-  'America/Denver',
-  'America/Chicago',
-  'America/New_York',
-  'America/Toronto',
-  'America/Sao_Paulo',
-  'Europe/London',
-  'Europe/Paris',
-  'Europe/Berlin',
-  'Asia/Dubai',
-  'Asia/Kolkata',
-  'Asia/Singapore',
-  'Asia/Tokyo',
-  'Australia/Sydney',
-  'UTC',
-];
-
-function timezoneOptionsFor(value: string) {
-  const set = new Set(TIMEZONE_OPTIONS);
-  if (value && !set.has(value)) set.add(value);
-  return Array.from(set);
-}
+type Slot = { startUtc: string; endUtc: string; status?: 'available' | 'booked' };
 
 function dayPickerClassNames(size: 'default' | 'compact' | 'split' = 'default') {
   const dayCell =
     size === 'compact'
       ? 'h-9 w-9 text-sm'
       : size === 'split'
-        ? 'mx-auto h-12 w-full max-w-[3rem] text-[15px]'
+        ? 'mx-auto h-11 w-11 shrink-0 text-[15px]'
         : 'h-10 w-10 text-sm';
 
   return {
@@ -108,26 +85,60 @@ function SlotList({
 }) {
   const timeFmt = use24Hour ? 'HH:mm' : 'h:mm a';
 
+  const displaySlots = useMemo(
+    () =>
+      [...slots]
+        .filter((s) => (s.status ?? 'available') === 'available' || s.status === 'booked')
+        .sort((a, b) => a.startUtc.localeCompare(b.startUtc)),
+    [slots],
+  );
+
   if (layout === 'split') {
     return (
-      <ul className="max-h-[min(420px,60vh)] space-y-1.5 overflow-y-auto pr-0.5" aria-live="polite">
+      <ul
+        className="booking-slot-scroll max-h-[min(440px,52vh)] space-y-2 overflow-y-auto overscroll-contain"
+        aria-live="polite"
+      >
         {loading &&
           Array.from({ length: 6 }).map((_, i) => (
             <li key={`sk-${i}`}>
-              <Skeleton className="h-11 w-full rounded-md" />
+              <Skeleton className="h-11 w-full rounded-none" />
             </li>
           ))}
         {!loading &&
-          slots.map((slot) => {
-            const isSelected = startUtc === slot.startUtc;
+          displaySlots.map((slot) => {
+            const isBooked = slot.status === 'booked';
+            const isSelected = !isBooked && startUtc === slot.startUtc;
             const isCurrent = currentStartUtc != null && currentStartUtc === slot.startUtc;
+            const timeLabel = formatInTimeZone(new Date(slot.startUtc), customerTimezone, timeFmt);
+
+            if (isBooked) {
+              return (
+                <li key={slot.startUtc}>
+                  <div
+                    role="status"
+                    className="flex w-full cursor-not-allowed items-center gap-2 rounded-none border border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-sm dark:border-slate-700 dark:bg-slate-900/60"
+                    aria-disabled="true"
+                  >
+                    <Lock className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
+                    <span className="flex-1 font-medium text-slate-400 dark:text-slate-500">
+                      {timeLabel}
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      Already booked
+                    </span>
+                  </div>
+                </li>
+              );
+            }
+
             return (
               <li key={slot.startUtc}>
                 <button
                   type="button"
                   onClick={() => onSlotSelect(slot.startUtc)}
                   className={clsx(
-                    'flex w-full items-center gap-2 rounded-md border px-3 py-2.5 text-left text-sm font-medium transition',
+                    'flex w-full items-center gap-2 rounded-none border px-3 py-2.5 text-left text-sm font-medium transition',
                     isSelected
                       ? 'border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900'
                       : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600',
@@ -141,9 +152,7 @@ function SlotList({
                     )}
                     aria-hidden
                   />
-                  <span className="flex-1">
-                    {formatInTimeZone(new Date(slot.startUtc), customerTimezone, timeFmt)}
-                  </span>
+                  <span className="flex-1">{timeLabel}</span>
                   {isCurrent && (
                     <span className="text-[10px] font-semibold uppercase opacity-80">Current</span>
                   )}
@@ -164,9 +173,28 @@ function SlotList({
           </li>
         ))}
       {!loading &&
-        slots.map((slot) => {
-          const isSelected = startUtc === slot.startUtc;
+        displaySlots.map((slot) => {
+          const isBooked = slot.status === 'booked';
+          const isSelected = !isBooked && startUtc === slot.startUtc;
           const isCurrent = currentStartUtc != null && currentStartUtc === slot.startUtc;
+          const timeLabel = formatInTimeZone(new Date(slot.startUtc), customerTimezone, timeFmt);
+
+          if (isBooked) {
+            return (
+              <li key={slot.startUtc}>
+                <div
+                  className="flex w-full flex-col items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm dark:border-slate-700 dark:bg-slate-900/60"
+                  aria-disabled
+                >
+                  <span className="font-medium text-slate-400 dark:text-slate-500">{timeLabel}</span>
+                  <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    Already booked
+                  </span>
+                </div>
+              </li>
+            );
+          }
+
           return (
             <li key={slot.startUtc}>
               <button
@@ -180,7 +208,7 @@ function SlotList({
                 )}
                 style={isSelected ? { borderColor: accentColor } : undefined}
               >
-                <span>{formatInTimeZone(new Date(slot.startUtc), customerTimezone, timeFmt)}</span>
+                <span>{timeLabel}</span>
                 {isCurrent && (
                   <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-400">
                     Current
@@ -251,19 +279,31 @@ export function DateTimePicker({
     />
   );
 
+  const slotDisplayTimezone = hideTimezone ? locationTimezone : customerTimezone;
+
   if (layout === 'split') {
     const dayHeading = selectedDate
-      ? formatInTimeZone(parseISO(`${selectedDate}T12:00:00`), customerTimezone, 'EEE d')
+      ? formatInTimeZone(
+          new Date(`${selectedDate}T12:00:00.000Z`),
+          slotDisplayTimezone,
+          'EEEE, MMM d, yyyy',
+        )
       : 'Select a date';
 
     return (
-      <div className="flex min-h-[320px] flex-col lg:flex-row">
-        <div className="flex min-w-0 flex-1 items-start border-b border-slate-100 px-4 py-4 dark:border-slate-800 lg:border-b-0 lg:border-r">
-          <div className="w-full">{dayPicker}</div>
+      <div className="grid h-full min-h-[480px] grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="flex h-full min-h-[480px] items-start border-b border-slate-200 dark:border-slate-800 lg:border-b-0 lg:border-r">
+          <div className="w-full px-5 py-6 lg:px-6 lg:py-7">{dayPicker}</div>
         </div>
-        <div className="flex w-full flex-col p-4 lg:w-[280px] lg:shrink-0">
+        <div className="flex h-full min-h-[480px] flex-col justify-start self-stretch">
+          <div className="flex w-full flex-col justify-start overflow-visible p-5 lg:p-6 lg:pt-7">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{dayHeading}</p>
+            <div>
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{dayHeading}</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Times in {formatTimezoneLabel(slotDisplayTimezone)}
+              </p>
+            </div>
             <div className="flex rounded-md border border-slate-200 bg-slate-50/80 p-0.5 text-[11px] dark:border-slate-700 dark:bg-slate-900/50">
               <button
                 type="button"
@@ -303,13 +343,14 @@ export function DateTimePicker({
               loading={loading}
               startUtc={startUtc}
               onSlotSelect={onSlotSelect}
-              customerTimezone={customerTimezone}
+              customerTimezone={slotDisplayTimezone}
               accentColor={accentColor}
               use24Hour={use24Hour}
               currentStartUtc={currentStartUtc}
               layout="split"
             />
           )}
+          </div>
         </div>
       </div>
     );

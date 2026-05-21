@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
@@ -15,6 +15,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordField } from '@/components/shared/PasswordField';
 
+const DEV_ADMIN_EMAIL =
+  process.env.NEXT_PUBLIC_DEV_ADMIN_EMAIL ?? 'asadshah1024+admin@gmail.com';
+const DEV_ADMIN_PASSWORD = process.env.NEXT_PUBLIC_DEV_ADMIN_PASSWORD ?? 'Asad@0451';
+const showDevAdminLogin =
+  process.env.NODE_ENV === 'development' ||
+  process.env.NEXT_PUBLIC_DEV_ADMIN_LOGIN === 'true';
+
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -24,19 +31,35 @@ function LoginPageContent() {
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<LoginForm>({ resolver: zodResolver(loginSchema) });
+  const [devAdminLoading, setDevAdminLoading] = useState(false);
+
+  async function performLogin(values: LoginForm) {
+    await ensureCsrf();
+    const data = await api<{ user: AuthUser }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(values),
+    });
+    toast.success('Welcome back!');
+    router.replace(resolvePostLoginPath(data.user.role, next));
+    router.refresh();
+  }
 
   async function onSubmit(values: LoginForm) {
     try {
-      await ensureCsrf();
-      const data = await api<{ user: AuthUser }>('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify(values),
-      });
-      toast.success('Welcome back!');
-      router.replace(resolvePostLoginPath(data.user.role, next));
-      router.refresh();
+      await performLogin(values);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Login failed');
+    }
+  }
+
+  async function onDevAdminLogin() {
+    setDevAdminLoading(true);
+    try {
+      await performLogin({ email: DEV_ADMIN_EMAIL, password: DEV_ADMIN_PASSWORD });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Admin login failed');
+    } finally {
+      setDevAdminLoading(false);
     }
   }
 
@@ -66,6 +89,18 @@ function LoginPageContent() {
         <Button type="submit" className="w-full" loading={isSubmitting}>
           Sign in
         </Button>
+        {showDevAdminLogin ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            loading={devAdminLoading}
+            disabled={isSubmitting}
+            onClick={() => void onDevAdminLogin()}
+          >
+            Admin login (dev)
+          </Button>
+        ) : null}
       </form>
       <p className="mt-4 text-center text-sm text-text-secondary">
         No account?{' '}

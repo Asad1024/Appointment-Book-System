@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@pkg/shared-types';
@@ -21,6 +21,26 @@ export class TeamController {
   @Get('members')
   listMembers(@Req() req: { user: { orgId: string } }) {
     return this.team.listMembers(req.user.orgId);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
+  @Patch('members/:id')
+  updateMember(
+    @Req() req: { user: { orgId: string; id: string } },
+    @Param('id') id: string,
+    @Body() body: { isActive?: boolean },
+  ) {
+    return this.team.updateMember(req.user.orgId, id, body, req.user.id);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
+  @Delete('members/:id')
+  removeMember(@Req() req: { user: { orgId: string; id: string } }, @Param('id') id: string) {
+    return this.team.removeMember(req.user.orgId, id, req.user.id);
   }
 
   @ApiBearerAuth()

@@ -115,6 +115,40 @@ export function generateAvailableSlots(input: SlotGenerationInput): TimeSlot[] {
   return slots;
 }
 
+export type SlotAvailabilityStatus = 'available' | 'booked';
+
+export type TimeSlotWithStatus = TimeSlot & { status: SlotAvailabilityStatus };
+
+/**
+ * Booking-page slot list:
+ * - available: only times that fit the service without overlapping existing appointments
+ * - booked: one locked row per existing appointment (at its start time)
+ * Overlapping but unbookable starts (e.g. 2:30 PM for 60m when 3:00–3:45 is taken) are omitted.
+ */
+export function generateSlotGrid(input: SlotGenerationInput): TimeSlotWithStatus[] {
+  const byStart = new Map<string, TimeSlotWithStatus>();
+
+  for (const slot of generateAvailableSlots(input)) {
+    const key = DateTime.fromISO(slot.startUtc, { zone: 'utc' }).toUTC().toISO()!;
+    byStart.set(key, {
+      startUtc: key,
+      endUtc: DateTime.fromISO(slot.endUtc, { zone: 'utc' }).toUTC().toISO()!,
+      status: 'available',
+    });
+  }
+
+  for (const appt of input.bookedIntervals) {
+    const key = DateTime.fromJSDate(appt.startUtc, { zone: 'utc' }).toUTC().toISO()!;
+    byStart.set(key, {
+      startUtc: key,
+      endUtc: DateTime.fromJSDate(appt.endUtc, { zone: 'utc' }).toUTC().toISO()!,
+      status: 'booked',
+    });
+  }
+
+  return Array.from(byStart.values()).sort((a, b) => a.startUtc.localeCompare(b.startUtc));
+}
+
 /**
  * Whether a customer can still cancel or reschedule.
  * Full location cutoff (e.g. 24h) applies when the booking was made far enough ahead.

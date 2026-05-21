@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiHeader, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../auth/public.decorator';
@@ -47,5 +47,14 @@ export class PartnerController {
     @Query('locationId') locationId: string,
   ) {
     return this.partner.listBookingLinkOptions(req.partner, locationId);
+  }
+
+  @Get('appointments/:appointmentId')
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
+  getAppointment(
+    @Req() req: { partner: PartnerAuthContext },
+    @Param('appointmentId') appointmentId: string,
+  ) {
+    return this.partner.getAppointment(req.partner, appointmentId);
   }
 }

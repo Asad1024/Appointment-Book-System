@@ -10,7 +10,8 @@ function isMinimalChrome(pathname: string | null): boolean {
   return Boolean(
     pathname?.startsWith('/embed') ||
       pathname?.startsWith('/partner') ||
-      pathname?.startsWith('/b/'),
+      pathname?.startsWith('/b/') ||
+      pathname?.startsWith('/manage/'),
   );
 }
 

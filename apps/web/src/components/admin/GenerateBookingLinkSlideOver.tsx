@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Copy, ExternalLink, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiAuth } from '@/lib/api';
-import { buildBookingEventUrl } from '@/lib/build-booking-event-url';
+import { bookingLinkSourceLabel } from '@/lib/booking-link-attribution';
 import { SlideOver } from '@/components/admin/SlideOver';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -59,8 +59,10 @@ export function GenerateBookingLinkSlideOver({
   const [options, setOptions] = useState<BookingLinkOptions | null>(null);
   const [serviceId, setServiceId] = useState(initialServiceId ?? '');
   const [providerId, setProviderId] = useState(initialProviderId ?? '');
-  const [source, setSource] = useState(sourceDefault);
-  const [campaign, setCampaign] = useState('');
+  const [linkName, setLinkName] = useState('');
+  const [bookingUrl, setBookingUrl] = useState('');
+  const [linkExpiresAt, setLinkExpiresAt] = useState<string | null>(null);
+  const [linkLoading, setLinkLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!locationId) return;
@@ -80,11 +82,13 @@ export function GenerateBookingLinkSlideOver({
 
   useEffect(() => {
     if (!open) return;
-    setSource(sourceDefault);
+    setLinkName('');
+    setBookingUrl('');
+    setLinkExpiresAt(null);
     setServiceId(initialServiceId ?? '');
     setProviderId(initialProviderId ?? '');
     void load();
-  }, [open, load, sourceDefault, initialServiceId, initialProviderId]);
+  }, [open, load, initialServiceId, initialProviderId]);
 
   const services = useMemo(() => {
     const pairs = options?.pairs ?? [];
@@ -128,19 +132,46 @@ export function GenerateBookingLinkSlideOver({
     (p) => p.serviceId === serviceId && p.providerId === providerId,
   );
 
-  const bookingUrl =
-    options && serviceId && providerId
-      ? buildBookingEventUrl({
-          orgSlug: options.orgSlug,
+  useEffect(() => {
+    if (!open || !locationId || !serviceId || !providerId) {
+      setBookingUrl('');
+      setLinkExpiresAt(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setLinkLoading(true);
+      void apiAuth<{ url: string; expiresAt: string }>('/catalog/staff/booking-sessions', {
+        method: 'POST',
+        body: JSON.stringify({
+          locationId,
           serviceId,
           providerId,
-          providerSlug: selectedPair?.providerSlug,
-          serviceSlug: selectedPair?.serviceSlug,
-          source: source.trim() || sourceDefault,
-          campaign: campaign.trim() || undefined,
-          product: selectedPair?.productKey ?? undefined,
+          campaign: linkName.trim() || undefined,
+        }),
+      })
+        .then((res) => {
+          if (cancelled) return;
+          setBookingUrl(res.url);
+          setLinkExpiresAt(res.expiresAt);
         })
-      : '';
+        .catch((e) => {
+          if (cancelled) return;
+          setBookingUrl('');
+          setLinkExpiresAt(null);
+          toast.error(e instanceof Error ? e.message : 'Could not create booking link');
+        })
+        .finally(() => {
+          if (!cancelled) setLinkLoading(false);
+        });
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, locationId, serviceId, providerId, linkName]);
 
   async function copyLink() {
     if (!bookingUrl) {
@@ -218,51 +249,73 @@ export function GenerateBookingLinkSlideOver({
           </div>
 
           <div>
-            <Label htmlFor="link-source">Source tag (optional)</Label>
+            <Label htmlFor="link-source">Shared from</Label>
             <Input
               id="link-source"
               className="mt-1.5"
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              placeholder={sourceDefault}
+              value={bookingLinkSourceLabel(sourceDefault)}
+              disabled
+              readOnly
             />
             <p className="mt-1 text-xs text-text-muted">
-              Tracks where the booking came from (e.g. sales-call, leadsreach).
+              Set automatically from your account ({sourceDefault}).
             </p>
           </div>
 
           <div>
-            <Label htmlFor="link-campaign">Campaign (optional)</Label>
+            <Label htmlFor="link-name">Link name (optional)</Label>
             <Input
-              id="link-campaign"
+              id="link-name"
               className="mt-1.5"
-              value={campaign}
-              onChange={(e) => setCampaign(e.target.value)}
-              placeholder="q2-outreach"
+              value={linkName}
+              onChange={(e) => setLinkName(e.target.value)}
+              placeholder="e.g. ramadan-email, front-desk-qr"
             />
+            <p className="mt-1 text-xs text-text-muted">
+              Only if you use several links and want to tell them apart in reports.
+            </p>
           </div>
 
-          {bookingUrl && (
+          {(linkLoading || bookingUrl) && (
             <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-900/50">
               <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-                Customer link
+                Secure customer link
               </p>
-              <p className="mt-2 break-all font-mono text-xs text-text-primary">{bookingUrl}</p>
+              {linkLoading ? (
+                <Skeleton className="mt-2 h-10 w-full" />
+              ) : (
+                <p className="mt-2 break-all font-mono text-xs text-text-primary">{bookingUrl}</p>
+              )}
               {selectedPair && (
                 <p className="mt-2 text-sm text-text-secondary">
                   {selectedPair.serviceName} with {selectedPair.providerName}
                 </p>
               )}
+              {linkExpiresAt && !linkLoading && (
+                <p className="mt-1 text-xs text-text-muted">
+                  Expires {new Date(linkExpiresAt).toLocaleDateString()} — no service or provider
+                  names in the URL.
+                </p>
+              )}
               <div className="mt-4 flex flex-wrap gap-2">
-                <Button type="button" onClick={() => void copyLink()}>
+                <Button
+                  type="button"
+                  onClick={() => void copyLink()}
+                  disabled={linkLoading || !bookingUrl}
+                >
                   <Copy className="mr-2 h-4 w-4" />
                   Copy link
                 </Button>
                 <a
-                  href={bookingUrl}
+                  href={bookingUrl || undefined}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={cn(buttonVariants({ variant: 'outline' }), 'inline-flex')}
+                  aria-disabled={linkLoading || !bookingUrl}
+                  className={cn(
+                    buttonVariants({ variant: 'outline' }),
+                    'inline-flex',
+                    (linkLoading || !bookingUrl) && 'pointer-events-none opacity-50',
+                  )}
                 >
                   <ExternalLink className="mr-2 h-4 w-4" />
                   Preview

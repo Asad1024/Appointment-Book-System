@@ -1,22 +1,31 @@
+import Image from 'next/image';
 import Link from 'next/link';
 import { cn } from '@/lib/cn';
-import { PLATFORM } from '@/lib/brand';
-import { LogoMark } from '@/components/LogoMark';
+import { PLATFORM, PLATFORM_LOGO_PATH } from '@/lib/brand';
 
 export function Logo({
   className,
   showText = true,
   inverted = false,
   href = '/',
+  markSize = 26,
 }: {
   className?: string;
   showText?: boolean;
   inverted?: boolean;
   href?: string;
+  markSize?: number;
 }) {
   const content = (
     <span className={cn('inline-flex items-center gap-2.5', className)}>
-      <LogoMark size={36} />
+      <Image
+        src={PLATFORM_LOGO_PATH}
+        alt={`${PLATFORM.name} logo`}
+        width={markSize}
+        height={markSize}
+        className="shrink-0 rounded-lg object-contain"
+        priority
+      />
       {showText && (
         <span className="flex flex-col leading-none">
           <span
@@ -42,7 +51,10 @@ export function Logo({
 
   if (href) {
     return (
-      <Link href={href} className="inline-flex rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500">
+      <Link
+        href={href}
+        className="inline-flex rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+      >
         {content}
       </Link>
     );

@@ -5,6 +5,8 @@ import Link from 'next/link';
 import {
   Archive,
   Calendar,
+  CheckCircle2,
+  Layers3,
   Mail,
   MapPin,
   Link2,
@@ -19,7 +21,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiAuth } from '@/lib/api';
+import { bookingLinkSourceFromRole } from '@/lib/booking-link-attribution';
 import { useAdminLocation } from '@/lib/admin-location-context';
+import { useStaffSession } from '@/lib/useStaffSession';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { SlideOver } from '@/components/admin/SlideOver';
 import {
@@ -36,6 +40,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+
+type Service = {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  isActive: boolean;
+  locationId: string;
+  archivedAt?: string | null;
+};
 
 type Provider = {
   id: string;
@@ -47,11 +61,16 @@ type Provider = {
   location?: { name: string };
 };
 
-const emptyForm = { name: '', email: '' };
+const emptyForm = { name: '', email: '', isActive: true };
 
 export default function AdminProvidersPage() {
+  const { user } = useStaffSession({ redirectToLogin: false });
   const { locationId } = useAdminLocation();
+  const linkSource = bookingLinkSourceFromRole(user?.role ?? 'admin');
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [linkedServiceIds, setLinkedServiceIds] = useState<Set<string>>(new Set());
+  const [assigningAllServices, setAssigningAllServices] = useState(false);
   const [loading, setLoading] = useState(true);
   const [panelOpen, setPanelOpen] = useState(false);
   const [editing, setEditing] = useState<Provider | null>(null);
@@ -86,6 +105,14 @@ export default function AdminProvidersPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!locationId) return;
+    const q = new URLSearchParams({ locationId });
+    apiAuth<Service[]>(`/catalog/admin/services?${q}`)
+      .then(setServices)
+      .catch(() => {});
+  }, [locationId]);
 
   const activeProviders = useMemo(() => providers.filter((p) => !p.archivedAt), [providers]);
   const archivedProviders = useMemo(() => providers.filter((p) => p.archivedAt), [providers]);
@@ -142,18 +169,34 @@ export default function AdminProvidersPage() {
     });
   }, [archivedProviders, contactFilter, searchValue, statusFilter]);
 
-  const activeCount = activeProviders.length;
-  const archivedCount = archivedProviders.length;
-  const pausedCount = useMemo(
-    () => activeProviders.filter((provider) => !provider.isActive).length,
+  const totalProvidersCount = activeProviders.length;
+  const bookableCount = useMemo(
+    () => activeProviders.filter((provider) => provider.isActive).length,
     [activeProviders],
   );
+  const archivedCount = archivedProviders.length;
+  const withEmailCount = useMemo(
+    () => activeProviders.filter((provider) => Boolean(provider.email)).length,
+    [activeProviders],
+  );
+
+  async function loadServiceLinks(provider: Provider) {
+    try {
+      const linked = await apiAuth<{ id: string }[]>(
+        `/catalog/providers/${provider.id}/services`,
+      );
+      setLinkedServiceIds(new Set(linked.map((s) => s.id)));
+    } catch {
+      setLinkedServiceIds(new Set());
+    }
+  }
 
   function closePanel() {
     setOpenMenuId(null);
     setPanelOpen(false);
     setEditing(null);
     setForm(emptyForm);
+    setLinkedServiceIds(new Set());
   }
 
   function openBookingLink(providerId?: string) {
@@ -165,13 +208,15 @@ export default function AdminProvidersPage() {
     setOpenMenuId(null);
     setEditing(null);
     setForm(emptyForm);
+    setLinkedServiceIds(new Set());
     setPanelOpen(true);
   }
 
   function openEdit(p: Provider) {
     setOpenMenuId(null);
     setEditing(p);
-    setForm({ name: p.name, email: p.email ?? '' });
+    setForm({ name: p.name, email: p.email ?? '', isActive: p.isActive });
+    void loadServiceLinks(p);
     setPanelOpen(true);
   }
 
@@ -185,29 +230,39 @@ export default function AdminProvidersPage() {
           body: JSON.stringify({
             name: form.name,
             email: form.email || null,
+            isActive: form.isActive,
           }),
         });
         toast.success('Provider updated');
+        setPanelOpen(false);
+        setOpenMenuId(null);
+        await load();
       } else {
         const org = await apiAuth<{ id: string; locations: { id: string }[] }>(
           '/settings/organization',
         );
         const loc = org.locations.find((l) => l.id === locationId);
         if (!loc) throw new Error('Select a location first');
-        await apiAuth('/catalog/providers', {
+        const created = await apiAuth<Provider>('/catalog/providers', {
           method: 'POST',
           body: JSON.stringify({
             organizationId: org.id,
             locationId: loc.id,
             name: form.name,
             email: form.email || undefined,
+            isActive: form.isActive,
           }),
         });
         toast.success('Provider created');
+        setEditing(created);
+        setForm({
+          name: created.name,
+          email: created.email ?? '',
+          isActive: created.isActive,
+        });
+        void loadServiceLinks(created);
+        await load();
       }
-      closePanel();
-      setOpenMenuId(null);
-      await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -235,6 +290,53 @@ export default function AdminProvidersPage() {
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Restore failed');
+    }
+  }
+
+  async function toggleService(serviceId: string, checked: boolean) {
+    if (!editing) return;
+    try {
+      if (checked) {
+        await apiAuth('/catalog/service-providers', {
+          method: 'POST',
+          body: JSON.stringify({ serviceId, providerId: editing.id }),
+        });
+        setLinkedServiceIds((prev) => new Set([...Array.from(prev), serviceId]));
+      } else {
+        await apiAuth('/catalog/service-providers', {
+          method: 'DELETE',
+          body: JSON.stringify({ serviceId, providerId: editing.id }),
+        });
+        setLinkedServiceIds((prev) => {
+          const next = new Set(prev);
+          next.delete(serviceId);
+          return next;
+        });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update assignment');
+    }
+  }
+
+  async function setAssignAllServices(assignAll: boolean) {
+    if (!editing) return;
+    const locationServices = services.filter((s) => s.locationId === editing.locationId && !s.archivedAt);
+    if (locationServices.length === 0) return;
+
+    const serviceIds = assignAll ? locationServices.map((s) => s.id) : [];
+
+    setAssigningAllServices(true);
+    try {
+      await apiAuth<{ serviceIds: string[] }>(`/catalog/providers/${editing.id}/services`, {
+        method: 'PUT',
+        body: JSON.stringify({ serviceIds }),
+      });
+      setLinkedServiceIds(new Set(serviceIds));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update assignments');
+      void loadServiceLinks(editing);
+    } finally {
+      setAssigningAllServices(false);
     }
   }
 
@@ -285,6 +387,16 @@ export default function AdminProvidersPage() {
               <Link2 className={iconClass} />
               Booking link
             </button>
+          )}
+          {!p.archivedAt && (
+            <Link
+              href={`/admin/providers/${p.id}/availability`}
+              className={menuItemClass}
+              onClick={() => setOpenMenuId(null)}
+            >
+              <Calendar className={iconClass} />
+              Schedule
+            </Link>
           )}
           {!p.archivedAt && (
             <button
@@ -360,7 +472,16 @@ export default function AdminProvidersPage() {
       return (
         <div
           key={p.id}
-          className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+          role="button"
+          tabIndex={0}
+          className="cursor-pointer rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-brand-200 hover:bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-brand-800/60 dark:hover:bg-slate-800/50"
+          onClick={() => openEdit(p)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              openEdit(p);
+            }
+          }}
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -384,36 +505,25 @@ export default function AdminProvidersPage() {
                 {p.location?.name ?? '-'}
               </p>
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div
+              className="flex shrink-0 items-center gap-1.5"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+            >
               <CatalogStatusBadge isActive={p.isActive} archivedAt={p.archivedAt} />
               {renderProviderActions(p, 'mobile')}
             </div>
           </div>
-          {!p.archivedAt && (
-            <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={() => openBookingLink(p.id)}
-              >
-                <Link2 className="mr-1 h-4 w-4" />
-                Booking link
-              </Button>
-              <Link href={`/admin/providers/${p.id}/availability`} className="block">
-                <Button variant="outline" size="sm" className="w-full">
-                  <Calendar className="mr-1 h-4 w-4" />
-                  Schedule
-                </Button>
-              </Link>
-            </div>
-          )}
         </div>
       );
     }
 
     return (
-      <tr key={p.id} className="group transition-colors hover:bg-surface-muted/70">
+      <tr
+        key={p.id}
+        className="group cursor-pointer transition-colors hover:bg-surface-muted/70"
+        onClick={() => openEdit(p)}
+      >
         <td className="px-4 py-3">
           <div className="flex min-w-0 items-center gap-2.5">
             <InitialsAvatar
@@ -434,29 +544,8 @@ export default function AdminProvidersPage() {
         <td className="px-4 py-3">
           <CatalogStatusBadge isActive={p.isActive} archivedAt={p.archivedAt} />
         </td>
-        <td className="px-4 py-3 text-right">
-          <div className="flex items-center justify-end gap-1.5">
-            {!p.archivedAt && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-9 px-3"
-                  onClick={() => openBookingLink(p.id)}
-                >
-                  <Link2 className="mr-1 h-3.5 w-3.5" />
-                  Link
-                </Button>
-                <Link href={`/admin/providers/${p.id}/availability`}>
-                  <Button variant="outline" size="sm" className="h-9 px-3">
-                    <Calendar className="mr-1 h-3.5 w-3.5" />
-                    Schedule
-                  </Button>
-                </Link>
-              </>
-            )}
-            {renderProviderActions(p, 'desktop')}
-          </div>
+        <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+          {renderProviderActions(p, 'desktop')}
         </td>
       </tr>
     );
@@ -513,19 +602,22 @@ export default function AdminProvidersPage() {
           <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <Card className="border-slate-200 shadow-sm dark:border-slate-800">
               <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Active providers</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Total providers</p>
                 <p className="mt-2 flex items-center gap-2 text-3xl font-semibold text-text-primary">
-                  <Users className="h-5 w-5 text-brand-500" />
-                  {activeCount}
+                  <Layers3 className="h-5 w-5 text-brand-500" />
+                  {totalProvidersCount}
                 </p>
               </CardBody>
             </Card>
             <Card className="border-slate-200 shadow-sm dark:border-slate-800">
               <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Paused providers</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Active</p>
                 <p className="mt-2 flex items-center gap-2 text-3xl font-semibold text-text-primary">
-                  <Pause className="h-5 w-5 text-amber-500" />
-                  {pausedCount}
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                  {bookableCount}
+                </p>
+                <p className="mt-1 text-xs text-text-muted">
+                  {totalProvidersCount - bookableCount} paused
                 </p>
               </CardBody>
             </Card>
@@ -534,7 +626,7 @@ export default function AdminProvidersPage() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">With email</p>
                 <p className="mt-2 flex items-center gap-2 text-3xl font-semibold text-text-primary">
                   <Mail className="h-5 w-5 text-emerald-500" />
-                  {activeProviders.filter((provider) => Boolean(provider.email)).length}
+                  {withEmailCount}
                 </p>
               </CardBody>
             </Card>
@@ -546,7 +638,7 @@ export default function AdminProvidersPage() {
             searchPlaceholder="Search by name, email, or location..."
             showArchived={showArchived}
             onShowArchivedChange={setShowArchived}
-            summary={`${activeCount} active${showArchived ? ` - ${archivedCount} archived` : ''}`}
+            summary={`${totalProvidersCount} provider${totalProvidersCount === 1 ? '' : 's'}${showArchived && archivedCount > 0 ? ` · ${archivedCount} archived` : ''}`}
             filters={[
               {
                 id: 'providers-status',
@@ -575,56 +667,56 @@ export default function AdminProvidersPage() {
             ]}
           />
 
-          <Card className="border-slate-200 shadow-sm dark:border-slate-800">
-            <CardBody className="p-4 sm:p-5">
-              {loading ? (
-                <div className="space-y-3">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Skeleton key={i} className="h-12 w-full" />
-                  ))}
-                </div>
-              ) : activeCount === 0 && archivedCount === 0 ? (
-                <EmptyState
-                  icon={Users}
-                  title="No providers yet"
-                  description="Add providers to assign schedules and bookings."
-                  action={
-                    <Button onClick={openNew}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      New provider
-                    </Button>
-                  }
-                />
-              ) : filteredActiveProviders.length === 0 &&
-                (!showArchived || filteredArchivedProviders.length === 0) ? (
-                <EmptyState
-                  icon={Users}
-                  title="No providers match these filters"
-                  description="Try a different search or filter combination."
-                />
-              ) : (
+          {loading ? (
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : totalProvidersCount === 0 && archivedCount === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+              <EmptyState
+                icon={Users}
+                title="No providers yet"
+                description="Add providers to assign schedules and bookings."
+                action={
+                  <Button onClick={openNew}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    New provider
+                  </Button>
+                }
+              />
+            </div>
+          ) : filteredActiveProviders.length === 0 &&
+            (!showArchived || filteredArchivedProviders.length === 0) ? (
+            <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+              <EmptyState
+                icon={Users}
+                title="No providers match these filters"
+                description="Try a different search or filter combination."
+              />
+            </div>
+          ) : (
+            <>
+              {filteredActiveProviders.length > 0 && (
                 <>
-                  {filteredActiveProviders.length > 0 && (
-                    <>
-                      {renderDesktopTable(filteredActiveProviders)}
-                      <div className="space-y-3 md:hidden">
-                        {filteredActiveProviders.map((provider) => renderProviderRow(provider, true))}
-                      </div>
-                    </>
-                  )}
-                  {showArchived && filteredArchivedProviders.length > 0 && (
-                    <div className="mt-8 border-t border-slate-100 pt-6 dark:border-slate-800">
-                      <h3 className="mb-3 text-sm font-semibold text-text-secondary">Archived</h3>
-                      {renderDesktopTable(filteredArchivedProviders)}
-                      <div className="space-y-3 md:hidden">
-                        {filteredArchivedProviders.map((provider) => renderProviderRow(provider, true))}
-                      </div>
-                    </div>
-                  )}
+                  {renderDesktopTable(filteredActiveProviders)}
+                  <div className="space-y-3 md:hidden">
+                    {filteredActiveProviders.map((provider) => renderProviderRow(provider, true))}
+                  </div>
                 </>
               )}
-            </CardBody>
-          </Card>
+              {showArchived && filteredArchivedProviders.length > 0 && (
+                <div className="mt-8 border-t border-slate-100 pt-6 dark:border-slate-800">
+                  <h3 className="mb-3 text-sm font-semibold text-text-secondary">Archived</h3>
+                  {renderDesktopTable(filteredArchivedProviders)}
+                  <div className="space-y-3 md:hidden">
+                    {filteredArchivedProviders.map((provider) => renderProviderRow(provider, true))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
 
@@ -633,7 +725,9 @@ export default function AdminProvidersPage() {
         onClose={closePanel}
         title={editing ? 'Edit provider' : 'New provider'}
         description={
-          editing ? 'Update provider details and contact information' : 'Add a team member who can take appointments'
+          editing
+            ? 'Update provider details, status, and service assignments'
+            : 'Add a team member who can take appointments'
         }
       >
         <form className="space-y-4" onSubmit={saveProvider}>
@@ -645,9 +739,88 @@ export default function AdminProvidersPage() {
             <Label>Email</Label>
             <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           </div>
-          <Button type="submit" className="w-full" loading={saving}>
-            {editing ? 'Save changes' : 'Create provider'}
-          </Button>
+
+          <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-surface-subtle px-4 py-3 dark:border-slate-800">
+            <div>
+              <p className="text-sm font-semibold text-text-primary">Active</p>
+              <p className="text-xs text-text-secondary">
+                Paused providers stay on your team but are hidden from booking
+              </p>
+            </div>
+            <Switch
+              checked={form.isActive}
+              onCheckedChange={(isActive) => setForm({ ...form, isActive })}
+            />
+          </div>
+
+          {editing ? (
+            (() => {
+              const locationServices = services.filter(
+                (s) => s.locationId === editing.locationId && !s.archivedAt,
+              );
+              const allAssigned =
+                locationServices.length > 0 &&
+                locationServices.every((s) => linkedServiceIds.has(s.id));
+              const someAssigned = locationServices.some((s) => linkedServiceIds.has(s.id));
+
+              return (
+                <div className="rounded-xl border border-slate-100 bg-surface-subtle p-4 dark:border-slate-800">
+                  <h3 className="text-sm font-semibold text-text-primary">Assign services</h3>
+                  <p className="mt-0.5 text-xs text-text-secondary">
+                    Which services this provider can perform
+                  </p>
+                  {locationServices.length > 0 && (
+                    <label className="mt-4 flex cursor-pointer items-center gap-2.5">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                        checked={allAssigned}
+                        ref={(el) => {
+                          if (el) el.indeterminate = someAssigned && !allAssigned;
+                        }}
+                        disabled={assigningAllServices}
+                        onChange={(e) => void setAssignAllServices(e.target.checked)}
+                      />
+                      <span className="text-sm font-medium text-text-primary">Assign to all</span>
+                    </label>
+                  )}
+                  <ul className="mt-3 space-y-3">
+                    {locationServices.map((s) => (
+                      <li key={s.id} className="flex items-center justify-between gap-3">
+                        <span className="text-sm">
+                          {s.name}
+                          {!s.isActive ? (
+                            <span className="ml-1.5 text-xs text-text-muted">(paused)</span>
+                          ) : null}
+                        </span>
+                        <Switch
+                          checked={linkedServiceIds.has(s.id)}
+                          disabled={assigningAllServices}
+                          onCheckedChange={(c) => void toggleService(s.id, c)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="rounded-xl border border-slate-100 bg-surface-subtle p-4 dark:border-slate-800">
+              <h3 className="text-sm font-semibold text-text-primary">Assign services</h3>
+              <p className="mt-0.5 text-xs text-text-secondary">
+                Save the provider first, then assign services.
+              </p>
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <Button type="submit" loading={saving} className="flex-1">
+              {editing ? 'Save' : 'Create provider'}
+            </Button>
+            <Button type="button" variant="outline" onClick={closePanel}>
+              Cancel
+            </Button>
+          </div>
         </form>
       </SlideOver>
 
@@ -657,6 +830,7 @@ export default function AdminProvidersPage() {
           onOpenChange={setLinkPanelOpen}
           locationId={locationId}
           initialProviderId={linkProviderId}
+          sourceDefault={linkSource}
         />
       )}
 

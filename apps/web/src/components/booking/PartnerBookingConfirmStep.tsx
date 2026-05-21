@@ -10,6 +10,7 @@ import { formatMoneyFromCents, normalizeBookingCurrency } from '@/lib/currency';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { AppointmentTimeSummary } from '@/components/booking/AppointmentTimeSummary';
 import { ReminderPreferencesEditor } from '@/components/shared/ReminderPreferencesEditor';
 import { IntakeFieldsForm } from '@/components/booking/IntakeFieldsForm';
 
@@ -68,6 +69,7 @@ export function PartnerBookingConfirmStep({
   const dateLine = formatInTimeZone(start, customerTimezone, 'EEEE, MMMM d, yyyy');
   const timeLine = `${formatInTimeZone(start, customerTimezone, 'h:mm a')} – ${formatInTimeZone(end, customerTimezone, 'h:mm a')}`;
   const bookingCurrency = normalizeBookingCurrency(ctx.branding.currency);
+  const officeTimezone = ctx.location.timezone;
 
   const confirmLabel = loading
     ? 'Please wait…'
@@ -105,6 +107,14 @@ export function PartnerBookingConfirmStep({
             <span>{customerTimezone.replace(/_/g, ' ')}</span>
           </li>
         </ul>
+
+        <AppointmentTimeSummary
+          startUtc={startUtc}
+          endUtc={end.toISOString()}
+          customerTimezone={customerTimezone}
+          officeTimezone={officeTimezone}
+          compact
+        />
 
         {leadLabel ? (
           <p className="text-xs text-slate-500 dark:text-slate-400">

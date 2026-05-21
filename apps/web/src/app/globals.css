@@ -127,20 +127,43 @@
 .booking-day-picker--split .rdp-day {
   width: 14.285%;
   padding: 2px;
+  text-align: center;
+  vertical-align: middle;
 }
 .booking-day-picker--split .rdp-day_button {
-  width: 100%;
-  max-width: 3rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  max-width: 2.75rem;
   margin-inline: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  aspect-ratio: 1;
+  padding: 0;
 }
 .booking-day-picker .rdp-selected .rdp-day_button {
-  background-color: var(--booking-accent, #4f46e5);
-  color: #fff;
-  border-color: var(--booking-accent, #4f46e5);
+  background-color: var(--booking-accent, #4f46e5) !important;
+  color: #fff !important;
+  border-color: var(--booking-accent, #4f46e5) !important;
+  border-radius: 9999px;
 }
 .booking-day-picker .rdp-day_button:hover:not([disabled]) {
   background-color: rgb(241 245 249);
 }
 .booking-day-picker .rdp-selected .rdp-day_button:hover {
   filter: brightness(0.95);
+}
+
+/* Time slot list — scrollable but scrollbar hidden */
+.booking-slot-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.booking-slot-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }

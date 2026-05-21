@@ -51,3 +51,25 @@ export async function uniqueServiceSlug(
     n++;
   }
 }
+
+/** Unique per location — used as ?product= filter in integration booking URLs */
+export async function uniqueProductKey(
+  prisma: PrismaService,
+  locationId: string,
+  base: string,
+  excludeId?: string,
+): Promise<string> {
+  let n = 0;
+  while (true) {
+    const productKey = n === 0 ? base : `${base}-${n}`;
+    const existing = await prisma.service.findFirst({
+      where: {
+        locationId,
+        productKey,
+        ...(excludeId ? { NOT: { id: excludeId } } : {}),
+      },
+    });
+    if (!existing) return productKey;
+    n++;
+  }
+}

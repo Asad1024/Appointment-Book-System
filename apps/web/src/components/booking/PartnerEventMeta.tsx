@@ -10,23 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-const TIMEZONE_OPTIONS = [
-  'Pacific/Honolulu',
-  'America/Los_Angeles',
-  'America/New_York',
-  'Europe/London',
-  'Asia/Dubai',
-  'Asia/Karachi',
-  'Asia/Kolkata',
-  'Asia/Singapore',
-  'UTC',
-];
-
-function timezoneOptionsFor(value: string) {
-  const set = new Set(TIMEZONE_OPTIONS);
-  if (value && !set.has(value)) set.add(value);
-  return Array.from(set);
-}
+import { timezoneOptionsFor } from '@/lib/booking-timezone';
 
 export function PartnerEventMeta({
   serviceName,
@@ -39,6 +23,7 @@ export function PartnerEventMeta({
   leadLabel,
   selectedTimeLabel,
   accentColor,
+  lockToLocationTimezone = false,
 }: {
   serviceName: string;
   durationMinutes?: number;
@@ -46,64 +31,80 @@ export function PartnerEventMeta({
   locationName: string;
   locationTimezone: string;
   customerTimezone: string;
-  onCustomerTimezoneChange: (tz: string) => void;
+  onCustomerTimezoneChange?: (tz: string) => void;
   leadLabel?: string | null;
   selectedTimeLabel?: string;
   accentColor: string;
+  /** Partner booking: always show office times; avoid timezone mismatch. */
+  lockToLocationTimezone?: boolean;
 }) {
   const timezones = timezoneOptionsFor(customerTimezone);
 
   return (
-    <div className="space-y-4 border-b border-slate-100 p-5 lg:border-b-0 lg:border-r dark:border-slate-800">
+    <div className="flex h-full flex-col justify-start space-y-8 p-6 lg:p-8">
       {durationMinutes ? (
         <span
-          className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-slate-600 dark:text-slate-300"
+          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm font-medium text-slate-600 dark:text-slate-300"
           style={{ backgroundColor: `${accentColor}14`, color: accentColor }}
         >
-          <Clock className="h-3.5 w-3.5" aria-hidden />
+          <Clock className="h-4 w-4" aria-hidden />
           {durationMinutes} min
         </span>
       ) : null}
 
-      <div>
-        <h1 className="font-display text-lg font-bold leading-snug text-slate-900 dark:text-slate-100">
+      <div className="space-y-3">
+        <h1 className="font-display text-2xl font-bold leading-snug text-slate-900 dark:text-slate-100">
           {serviceName}
         </h1>
-        <p className="mt-1.5 flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+        <p className="flex items-center gap-2 text-base text-slate-600 dark:text-slate-300">
           <User className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
-          {providerName}
+          <span>{providerName}</span>
         </p>
-        <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-          <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden />
+        <p className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+          <MapPin className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
           {locationName}
         </p>
       </div>
 
       {leadLabel ? (
-        <p className="text-xs text-slate-500 dark:text-slate-400">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
           <span className="font-medium text-slate-700 dark:text-slate-200">{leadLabel}</span>
         </p>
       ) : null}
 
-      <div>
-        <Label htmlFor="partner-timezone" className="text-xs text-slate-500">
-          Your timezone
-        </Label>
-        <Select value={customerTimezone} onValueChange={onCustomerTimezoneChange}>
-          <SelectTrigger id="partner-timezone" className="mt-1 h-9 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {timezones.map((tz) => (
-              <SelectItem key={tz} value={tz}>
-                {tz.replace(/_/g, ' ')}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-          Location: {locationTimezone.replace(/_/g, ' ')}
-        </p>
+      <div className="space-y-2.5 pt-1">
+        {lockToLocationTimezone ? (
+          <>
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Office time</p>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              {locationTimezone.replace(/_/g, ' ')}
+            </p>
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              All times on this page use the office clock (same as the appointment calendar).
+            </p>
+          </>
+        ) : (
+          <>
+            <Label htmlFor="partner-timezone" className="text-sm text-slate-500 dark:text-slate-400">
+              Your timezone
+            </Label>
+            <Select value={customerTimezone} onValueChange={onCustomerTimezoneChange!}>
+              <SelectTrigger id="partner-timezone" className="mt-0.5 h-10 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {timezones.map((tz) => (
+                  <SelectItem key={tz} value={tz}>
+                    {tz.replace(/_/g, ' ')}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              Location: {locationTimezone.replace(/_/g, ' ')}
+            </p>
+          </>
+        )}
       </div>
 
       {selectedTimeLabel ? (

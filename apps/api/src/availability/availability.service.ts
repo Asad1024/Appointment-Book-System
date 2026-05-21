@@ -1,10 +1,23 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { generateAvailableSlots } from '@pkg/scheduling-core';
+import { DateTime } from 'luxon';
+import { generateSlotGrid } from '@pkg/scheduling-core';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { AppointmentStatus } from '@pkg/shared-types';
 
-type SlotResult = { startUtc: string; endUtc: string; providerId?: string };
+/** Appointments that block time on the public booking grid. */
+const SLOT_OCCUPYING_STATUSES: AppointmentStatus[] = [
+  AppointmentStatus.PENDING,
+  AppointmentStatus.CONFIRMED,
+  AppointmentStatus.CHECKED_IN,
+];
+
+type SlotResult = {
+  startUtc: string;
+  endUtc: string;
+  providerId?: string;
+  status: 'available' | 'booked';
+};
 
 @Injectable()
 export class AvailabilityService {
@@ -41,22 +54,30 @@ export class AvailabilityService {
       throw new NotFoundException('Service or provider not found');
     }
 
+    const zone = location.timezone;
+    const rangeStart = DateTime.fromISO(params.fromDate, { zone }).startOf('day').toUTC().toJSDate();
+    const rangeEnd = DateTime.fromISO(params.toDate, { zone }).endOf('day').toUTC().toJSDate();
+
     const [blocked, appointments] = await Promise.all([
       this.prisma.blockedTime.findMany({
-        where: { providerId: params.providerId, endUtc: { gte: new Date(params.fromDate) } },
+        where: {
+          providerId: params.providerId,
+          endUtc: { gt: rangeStart },
+          startUtc: { lt: rangeEnd },
+        },
       }),
       this.prisma.appointment.findMany({
         where: {
           providerId: params.providerId,
-          status: { in: [AppointmentStatus.CONFIRMED, AppointmentStatus.CHECKED_IN] },
+          status: { in: SLOT_OCCUPYING_STATUSES },
           ...(params.excludeAppointmentId ? { id: { not: params.excludeAppointmentId } } : {}),
-          startUtc: { lte: new Date(`${params.toDate}T23:59:59Z`) },
-          endUtc: { gte: new Date(params.fromDate) },
+          startUtc: { lt: rangeEnd },
+          endUtc: { gt: rangeStart },
         },
       }),
     ]);
 
-    const slots = generateAvailableSlots({
+    const slots = generateSlotGrid({
       timezone: location.timezone,
       fromDate: params.fromDate,
       toDate: params.toDate,
@@ -76,6 +97,7 @@ export class AvailabilityService {
         bookingWindowDays: location.bookingWindowDays,
         bufferBeforeMinutes: service.bufferBeforeMinutes,
         bufferAfterMinutes: service.bufferAfterMinutes,
+        slotIntervalMinutes: 15,
       },
     });
 
@@ -83,6 +105,7 @@ export class AvailabilityService {
       startUtc: new Date(s.startUtc).toISOString(),
       endUtc: new Date(s.endUtc).toISOString(),
       providerId: params.providerId,
+      status: s.status,
     }));
   }
 
@@ -107,6 +130,8 @@ export class AvailabilityService {
       for (const slot of allSlots) {
         const existing = byStart.get(slot.startUtc);
         if (!existing) {
+          byStart.set(slot.startUtc, slot);
+        } else if (existing.status === 'available' && slot.status === 'booked') {
           byStart.set(slot.startUtc, slot);
         }
       }
@@ -139,7 +164,7 @@ export class AvailabilityService {
         const count = await this.prisma.appointment.count({
           where: {
             providerId: p.id,
-            status: { in: [AppointmentStatus.CONFIRMED, AppointmentStatus.CHECKED_IN] },
+            status: { in: SLOT_OCCUPYING_STATUSES },
             startUtc: { gte: dayStart, lte: dayEnd },
           },
         });
@@ -159,7 +184,9 @@ export class AvailabilityService {
       });
       if (
         slots.some(
-          (s) => Math.abs(new Date(s.startUtc).getTime() - startUtc.getTime()) < 60_000,
+          (s) =>
+            s.status === 'available' &&
+            Math.abs(new Date(s.startUtc).getTime() - startUtc.getTime()) < 60_000,
         )
       ) {
         return id;

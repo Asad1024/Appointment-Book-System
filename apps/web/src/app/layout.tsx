@@ -19,8 +19,8 @@ export const metadata: Metadata = {
   title: `${PLATFORM.name} — ${PLATFORM.tagline}`,
   description: PLATFORM.description,
   icons: {
-    icon: '/logo.svg',
-    apple: '/logo.svg',
+    icon: '/logo.png',
+    apple: '/logo.png',
   },
 };
 

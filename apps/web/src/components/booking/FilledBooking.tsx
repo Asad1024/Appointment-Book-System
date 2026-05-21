@@ -5,6 +5,12 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { formatInTimeZone } from 'date-fns-tz';
+import {
+  resolveInitialCustomerTimezone,
+  saveBookingTimezone,
+} from '@/lib/booking-timezone';
+import { AppointmentTimeSummary } from '@/components/booking/AppointmentTimeSummary';
+import { addCalendarDays, calendarDateInTimezone } from '@/lib/booking-dates';
 import { toast } from 'sonner';
 import { api, ensureCsrf, fetchMe } from '@/lib/api';
 import {
@@ -38,7 +44,7 @@ import { IntakeFieldsForm } from '@/components/booking/IntakeFieldsForm';
 import { PartnerBookingConfirmStep } from '@/components/booking/PartnerBookingConfirmStep';
 import { PartnerEventMeta } from '@/components/booking/PartnerEventMeta';
 
-type Slot = { startUtc: string; endUtc: string };
+type Slot = { startUtc: string; endUtc: string; status?: 'available' | 'booked' };
 
 type BookingEventContext = {
   organization: { name: string; slug: string };
@@ -89,9 +95,7 @@ export function FilledBooking({ params }: { params: FilledBookingParams }) {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [timezone, setTimezone] = useState('UTC');
-  const [customerTimezone, setCustomerTimezone] = useState(
-    typeof window !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC',
-  );
+  const [customerTimezone, setCustomerTimezone] = useState('UTC');
   const [selectedDate, setSelectedDate] = useState('');
   const [startUtc, setStartUtc] = useState('');
   const [loading, setLoading] = useState(false);
@@ -134,16 +138,28 @@ export function FilledBooking({ params }: { params: FilledBookingParams }) {
     return getApplicableReminderOffsets(locationReminderDefaults, startUtc);
   }, [startUtc, locationReminderDefaults]);
 
-  const minBookDate = new Date().toISOString().slice(0, 10);
+  const locationTz = ctx?.location.timezone ?? timezone;
+  const minBookDate = calendarDateInTimezone(locationTz);
   const maxBookDate = useMemo(() => {
     const days = ctx?.location.bookingWindowDays ?? 60;
-    const d = new Date();
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
-  }, [ctx?.location.bookingWindowDays]);
+    return addCalendarDays(minBookDate, days, locationTz);
+  }, [ctx?.location.bookingWindowDays, locationTz, minBookDate]);
+
+  const displaySlots = useMemo(
+    () =>
+      [...slots]
+        .filter((s) => s.status === 'available' || s.status === 'booked')
+        .sort((a, b) => a.startUtc.localeCompare(b.startUtc)),
+    [slots],
+  );
 
   const dateTimeLabel =
     startUtc && formatInTimeZone(new Date(startUtc), customerTimezone, 'PPpp');
+
+  const handleCustomerTimezoneChange = (tz: string) => {
+    saveBookingTimezone(tz);
+    setCustomerTimezone(tz);
+  };
 
   useEffect(() => {
     const prefillName = params.customerName?.trim() ?? '';
@@ -204,9 +220,13 @@ export function FilledBooking({ params }: { params: FilledBookingParams }) {
       .then((c) => {
         setCtx(c);
         setTimezone(c.location.timezone);
+        setCustomerTimezone(resolveInitialCustomerTimezone(c.location.timezone));
         const defaults = c.location.reminderOffsetsMinutes ?? [...DEFAULT_REMINDER_OFFSETS_MINUTES];
         setReminderSelectedMinutes(defaults);
         setRemindersEnabled(defaults.length > 0);
+
+        const today = calendarDateInTimezone(c.location.timezone);
+        setSelectedDate((prev) => prev || today);
       })
       .catch((e) => setLoadError(e instanceof Error ? e.message : 'Could not load booking'));
   }, [org, params.serviceId, params.providerId, params.providerSlug, params.serviceSlug]);
@@ -292,7 +312,9 @@ export function FilledBooking({ params }: { params: FilledBookingParams }) {
         `/availability/slots?locationId=${locationId}&serviceId=${serviceId}&providerId=${providerId}&fromDate=${selectedDate}&toDate=${selectedDate}`,
       );
       const stillAvailable = fresh.slots.some(
-        (s) => Math.abs(new Date(s.startUtc).getTime() - new Date(startUtc).getTime()) < 60_000,
+        (s) =>
+          (s.status ?? 'available') === 'available' &&
+          Math.abs(new Date(s.startUtc).getTime() - new Date(startUtc).getTime()) < 60_000,
       );
       if (!stillAvailable) {
         setSlots(fresh.slots);
@@ -455,6 +477,7 @@ export function FilledBooking({ params }: { params: FilledBookingParams }) {
         primaryColor={primaryColor}
         embed={params.embed}
         returnUrl={params.returnUrl}
+        partner={params.partner}
       />
     );
   }
@@ -504,7 +527,7 @@ export function FilledBooking({ params }: { params: FilledBookingParams }) {
 
   if (params.partner) {
     return (
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="flex w-full min-h-[500px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md dark:border-slate-800 dark:bg-slate-950">
         {error && (
           <div className="border-b border-slate-100 px-5 py-3 dark:border-slate-800">
             <Alert>{error}</Alert>
@@ -549,34 +572,37 @@ export function FilledBooking({ params }: { params: FilledBookingParams }) {
             onConfirm={() => void payAndBook()}
           />
         ) : (
-          <div className="lg:grid lg:grid-cols-[minmax(240px,320px)_1fr]">
-            <PartnerEventMeta
-              serviceName={ctx.service.name}
-              durationMinutes={ctx.service.durationMinutes}
-              providerName={ctx.provider.name}
-              locationName={ctx.location.name}
-              locationTimezone={timezone}
-              customerTimezone={customerTimezone}
-              onCustomerTimezoneChange={setCustomerTimezone}
-              leadLabel={params.leadLabel}
-              accentColor={primaryColor}
-            />
-            <DateTimePicker
-              layout="split"
-              hideTimezone
-              locationTimezone={timezone}
-              customerTimezone={customerTimezone}
-              onCustomerTimezoneChange={setCustomerTimezone}
-              selectedDate={selectedDate}
-              onDateChange={handleDateChange}
-              startUtc={startUtc}
-              onSlotSelect={setStartUtc}
-              slots={slots}
-              loading={slotsLoading}
-              minDate={minBookDate}
-              maxDate={maxBookDate}
-              accentColor={primaryColor}
-            />
+          <div className="flex min-h-[480px] flex-1 flex-col lg:grid lg:grid-cols-[minmax(240px,320px)_1fr]">
+            <div className="h-full min-h-[480px] border-b border-slate-200 dark:border-slate-800 lg:border-b-0 lg:border-r">
+              <PartnerEventMeta
+                serviceName={ctx.service.name}
+                durationMinutes={ctx.service.durationMinutes}
+                providerName={ctx.provider.name}
+                locationName={ctx.location.name}
+                locationTimezone={timezone}
+                customerTimezone={customerTimezone}
+                onCustomerTimezoneChange={handleCustomerTimezoneChange}
+                leadLabel={params.leadLabel}
+                accentColor={primaryColor}
+              />
+            </div>
+            <div className="h-full min-h-[480px]">
+              <DateTimePicker
+                layout="split"
+                locationTimezone={timezone}
+                customerTimezone={customerTimezone}
+                onCustomerTimezoneChange={handleCustomerTimezoneChange}
+                selectedDate={selectedDate}
+                onDateChange={handleDateChange}
+                startUtc={startUtc}
+                onSlotSelect={setStartUtc}
+                slots={displaySlots}
+                loading={slotsLoading}
+                minDate={minBookDate}
+                maxDate={maxBookDate}
+                accentColor={primaryColor}
+              />
+            </div>
           </div>
         )}
       </div>
@@ -600,9 +626,7 @@ export function FilledBooking({ params }: { params: FilledBookingParams }) {
 
   const header = (
     <>
-      {ctx.branding.logoUrl && (
-        <img src={ctx.branding.logoUrl} alt="" className="h-10 object-contain" />
-      )}
+      <img src="/logo.png" alt="" className="h-8 w-8 shrink-0 rounded-lg object-contain" />
       <div>
         <h1 className="font-display text-xl font-bold text-slate-900 dark:text-slate-100 sm:text-2xl">
           {ctx.service.name}
@@ -645,12 +669,12 @@ export function FilledBooking({ params }: { params: FilledBookingParams }) {
           <DateTimePicker
             locationTimezone={timezone}
             customerTimezone={customerTimezone}
-            onCustomerTimezoneChange={setCustomerTimezone}
+            onCustomerTimezoneChange={handleCustomerTimezoneChange}
             selectedDate={selectedDate}
             onDateChange={handleDateChange}
             startUtc={startUtc}
             onSlotSelect={setStartUtc}
-            slots={slots}
+            slots={displaySlots}
             loading={slotsLoading}
             minDate={minBookDate}
             maxDate={maxBookDate}
@@ -709,6 +733,21 @@ export function FilledBooking({ params }: { params: FilledBookingParams }) {
                 </p>
               )}
             </div>
+
+            {startUtc && (
+              <AppointmentTimeSummary
+                startUtc={startUtc}
+                endUtc={
+                  ctx.service.durationMinutes
+                    ? new Date(
+                        new Date(startUtc).getTime() + ctx.service.durationMinutes * 60_000,
+                      ).toISOString()
+                    : undefined
+                }
+                customerTimezone={customerTimezone}
+                officeTimezone={timezone}
+              />
+            )}
 
             {startUtc && applicableReminderOffsets.length > 0 && (
               <ReminderPreferencesEditor

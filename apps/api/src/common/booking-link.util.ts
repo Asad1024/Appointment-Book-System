@@ -41,3 +41,8 @@ export function buildPublicBookingEventUrl(
   if (params.ref) url.searchParams.set('ref', params.ref);
   return url.toString();
 }
+
+export function buildShortBookingSessionUrl(webUrl: string, token: string): string {
+  const base = webUrl.replace(/\/$/, '');
+  return `${base}/b/${encodeURIComponent(token)}`;
+}

@@ -10,12 +10,15 @@ export function BookingConfirmation({
   primaryColor,
   embed,
   returnUrl,
+  partner,
 }: {
   confirmed: Record<string, unknown>;
   primaryColor: string;
   embed?: boolean;
   returnUrl?: string;
+  partner?: boolean;
 }) {
+  const manageHref = `/manage/${confirmed.manageToken as string}${partner || returnUrl ? '?partner=1' : ''}`;
   if (returnUrl) {
     return (
       <Card className="mx-auto max-w-md text-center">
@@ -54,7 +57,7 @@ export function BookingConfirmation({
             : 'Check your email for confirmation details.'}
         </p>
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
-          <Link href={`/manage/${confirmed.manageToken as string}`}>
+          <Link href={manageHref}>
             <Button style={{ backgroundColor: primaryColor }}>Manage appointment</Button>
           </Link>
           {!embed && (

@@ -20,8 +20,8 @@ export function PartnerBookingFromSession({ session }: { session: PartnerBooking
   };
 
   return (
-    <>
-      <PartnerBookingChrome orgName={session.orgName} logoUrl={session.branding.logoUrl} />
+    <div className="flex w-full flex-col">
+      <PartnerBookingChrome orgName={session.orgName} />
       {session.mode === 'calendar' && session.serviceId && session.providerId ? (
         <FilledBooking
           params={{
@@ -39,7 +39,7 @@ export function PartnerBookingFromSession({ session }: { session: PartnerBooking
           <BookingWizard params={sharedParams} />
         </>
       )}
-      <PartnerBookingFooter returnUrl={session.returnUrl} />
-    </>
+      <PartnerBookingFooter returnUrl={session.returnUrl} className="mt-4" />
+    </div>
   );
 }

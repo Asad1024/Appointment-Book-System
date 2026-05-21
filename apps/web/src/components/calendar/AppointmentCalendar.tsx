@@ -14,7 +14,8 @@ import {
   subWeeks,
 } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserX } from 'lucide-react';
+import { getInitials } from '@/components/shared/InitialsAvatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -23,25 +24,33 @@ import { StatusBadge } from '@/components/shared/StatusBadge';
 import { cn } from '@/lib/utils';
 import {
   blockColumnLayout,
-  CALENDAR_HOUR_END,
-  CALENDAR_HOUR_START,
+  boundsFromScheduleRules,
+  buildHourSlots,
   CALENDAR_SLOT_HEIGHT_REM,
-  SLOT_MINUTES,
   type CalendarAppointment,
+  type CalendarHourRange,
   type CalendarView,
   type OverflowChipBlock,
+  type ScheduleRule,
   STATUS_COLORS,
+  applyVerticalCardGaps,
   appointmentsForDay,
+  CALENDAR_CARD_MARGIN_PX,
+  calendarDateInTimezone,
+  addCalendarDaysInTimezone,
+  formatDayHeaderInTimezone,
+  startOfCalendarDayInTimezone,
   formatViewLabel,
-  getVisibleRange,
-  isCurrentMonth,
+  getVisibleRangeInTimezone,
+  isCurrentMonthInTimezone,
   isOverflowChip,
-  isToday,
+  isTodayInTimezone,
   layoutDayBlocks,
-  monthGridDays,
+  monthGridDaysInTimezone,
+  minutesFromMidnightInTz,
+  weekDaysInTimezone,
   overflowChipLayout,
-  providerHueBorder,
-  providerHueColor,
+  resolveCalendarHourRange,
   totalDayMinutes,
 } from './calendar-utils';
 
@@ -53,35 +62,77 @@ type Props = {
   colorMode: 'status' | 'provider';
   detailPathPrefix: string;
   timezone?: string;
+  /** Aggregated provider schedule bounds (e.g. from API) */
+  scheduleBounds?: CalendarHourRange | null;
+  /** Raw weekly rules; merged with appointments when scheduleBounds omitted */
+  scheduleRules?: ScheduleRule[];
   onRangeChange: (startIso: string, endIso: string) => void;
 };
 
-const HOUR_SLOTS = Array.from(
-  { length: ((CALENDAR_HOUR_END - CALENDAR_HOUR_START) * 60) / SLOT_MINUTES },
-  (_, i) => CALENDAR_HOUR_START * 60 + i * SLOT_MINUTES,
-);
-
-const GRID_HEIGHT = HOUR_SLOTS.length * CALENDAR_SLOT_HEIGHT_REM;
 const MONTH_CELL_MAX_VISIBLE = 3;
 
-function eventStyle(
-  appt: CalendarAppointment,
-  colorMode: 'status' | 'provider',
-): React.CSSProperties {
-  if (colorMode === 'provider') {
-    return {
-      backgroundColor: providerHueColor(appt.provider.id),
-      borderColor: providerHueBorder(appt.provider.id),
-    };
-  }
-  return {};
+const BOOKING_CARD_SHELL =
+  'box-border rounded-l-none rounded-r-[14px] border border-[#a0dcbe] border-l-4 border-l-[#1d9e75] bg-white px-3 py-[10px] shadow-sm transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-md';
+
+function bookingCardTitle(appt: CalendarAppointment) {
+  const type = appt.service?.name?.trim();
+  return type || 'Booking';
 }
 
-function eventClasses(appt: CalendarAppointment, colorMode: 'status' | 'provider') {
-  if (colorMode === 'provider') {
-    return 'bg-emerald-500 text-white';
-  }
-  return 'bg-emerald-500 text-white';
+function bookingCardTimeRange(startUtc: string, endUtc: string, timezone: string) {
+  const start = safeFormatInTz(startUtc, timezone, 'h:mm');
+  const end = safeFormatInTz(endUtc, timezone, 'h:mm');
+  return `${start} – ${end}`;
+}
+
+function bookingCardInitials(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return '?';
+  return getInitials(trimmed);
+}
+
+function BookingCardContent({
+  appt,
+  timezone,
+}: {
+  appt: CalendarAppointment;
+  timezone: string;
+}) {
+  const clientName = appt.customer?.name?.trim() ?? '';
+  const bookingType = appt.service?.name?.trim() ?? '';
+  const hasName = clientName.length > 0;
+  const hasType = bookingType.length > 0;
+  const typeLabel = bookingType || 'Booking';
+  const timeRange = bookingCardTimeRange(appt.startUtc, appt.endUtc, timezone);
+
+  return (
+    <div className="flex min-h-fit w-full flex-col gap-0.5">
+      <p className="line-clamp-2 break-words text-[10px] font-medium uppercase leading-snug tracking-[0.06em] text-[#1d9e75]">
+        {typeLabel}
+      </p>
+      <p className="shrink-0 whitespace-nowrap text-[13px] font-medium leading-tight text-[#085041]">
+        {timeRange}
+      </p>
+      {hasName ? (
+        <div className="mt-0.5 flex min-w-0 shrink-0 items-center gap-1.5">
+          <span
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#e1f5ee] text-[9px] font-medium leading-none text-[#0f6e56]"
+            aria-hidden
+          >
+            {bookingCardInitials(clientName)}
+          </span>
+          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-[#0f6e56]">
+            {clientName}
+          </span>
+        </div>
+      ) : !hasType ? (
+        <div className="mt-0.5 flex min-w-0 shrink-0 items-center gap-1.5">
+          <UserX className="h-3.5 w-3.5 shrink-0 text-[#5dcaa5]" aria-hidden />
+          <span className="text-xs italic text-[#5dcaa5]">No client</span>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function monthChipClasses(status: string) {
@@ -108,15 +159,12 @@ function safeFormatInTz(
   }
 }
 
-function appointmentDurationMinutes(startUtc: string, endUtc: string) {
-  try {
-    const start = parseISO(startUtc).getTime();
-    const end = parseISO(endUtc).getTime();
-    const delta = Math.round((end - start) / 60000);
-    return Number.isFinite(delta) ? Math.max(0, delta) : 0;
-  } catch {
-    return 0;
-  }
+function formatHour12(hour: number) {
+  const h = hour % 24;
+  if (h === 0) return '12 AM';
+  if (h < 12) return `${h} AM`;
+  if (h === 12) return '12 PM';
+  return `${h - 12} PM`;
 }
 
 export function AppointmentCalendar({
@@ -125,6 +173,8 @@ export function AppointmentCalendar({
   colorMode,
   detailPathPrefix,
   timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  scheduleBounds,
+  scheduleRules,
   onRangeChange,
 }: Props) {
   const [view, setView] = useState<CalendarView>(() => {
@@ -142,35 +192,51 @@ export function AppointmentCalendar({
 
   const emitRange = useCallback(
     (nextView: CalendarView, nextAnchor: Date) => {
-      const { start, end } = getVisibleRange(nextView, nextAnchor);
-      onRangeChange(format(start, 'yyyy-MM-dd'), format(subDays(end, 1), 'yyyy-MM-dd'));
+      const { start, end } = getVisibleRangeInTimezone(nextView, nextAnchor, timezone);
+      const from = calendarDateInTimezone(start, timezone);
+      const to = addCalendarDaysInTimezone(calendarDateInTimezone(end, timezone), -1, timezone);
+      onRangeChange(from, to);
     },
-    [onRangeChange],
+    [onRangeChange, timezone],
   );
 
   useEffect(() => {
     emitRange(view, anchor);
   }, [view, anchor, emitRange]);
 
+  const hourRange = useMemo(() => {
+    const scheduleOnly =
+      scheduleBounds ?? (scheduleRules?.length ? boundsFromScheduleRules(scheduleRules) : null);
+    return resolveCalendarHourRange(appointments, timezone, scheduleOnly);
+  }, [appointments, timezone, scheduleBounds, scheduleRules]);
+
+  const hourSlots = useMemo(
+    () => buildHourSlots(hourRange.hourStart, hourRange.hourEnd),
+    [hourRange],
+  );
+  const gridHeightRem = hourSlots.length * CALENDAR_SLOT_HEIGHT_REM;
+
   const nowLinePct = useMemo(() => {
-    const min = now.getHours() * 60 + now.getMinutes() - CALENDAR_HOUR_START * 60;
-    const total = totalDayMinutes();
+    const min = minutesFromMidnightInTz(now, timezone) - hourRange.hourStart * 60;
+    const total = totalDayMinutes(hourRange.hourStart, hourRange.hourEnd);
     if (min < 0 || min > total) return null;
     return (min / total) * 100;
-  }, [now]);
+  }, [now, timezone, hourRange]);
 
-  const weekDays = useMemo(() => {
-    const start = getVisibleRange('week', anchor).start;
-    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
-  }, [anchor]);
+  const weekDays = useMemo(() => weekDaysInTimezone(anchor, timezone), [anchor, timezone]);
 
-  const monthDays = useMemo(() => monthGridDays(anchor), [anchor]);
+  const monthDays = useMemo(() => monthGridDaysInTimezone(anchor, timezone), [anchor, timezone]);
+
+  const dayViewColumn = useMemo(
+    () => startOfCalendarDayInTimezone(calendarDateInTimezone(anchor, timezone), timezone),
+    [anchor, timezone],
+  );
   const empty = !loading && appointments.length === 0;
 
   const visibleAppointmentsCount = useMemo(() => {
-    const { start, end } = getVisibleRange(view, anchor);
+    const { start, end } = getVisibleRangeInTimezone(view, anchor, timezone);
     return appointments.filter((a) => rangeContains(parseISO(a.startUtc), start, end)).length;
-  }, [appointments, view, anchor]);
+  }, [appointments, view, anchor, timezone]);
 
   const timezoneLabel = useMemo(
     () => timezone.replace(/_/g, ' '),
@@ -244,7 +310,15 @@ export function AppointmentCalendar({
           <p className="text-xs font-medium text-text-secondary">
             {visibleAppointmentsCount} booking{visibleAppointmentsCount === 1 ? '' : 's'} in view
           </p>
-          <p className="text-xs text-text-muted">Time zone: {timezoneLabel}</p>
+          <p className="text-xs text-text-muted">
+            Time zone: {timezoneLabel}
+            {view !== 'month' && (
+              <span className="text-text-secondary">
+                {' '}
+                · Hours {formatHour12(hourRange.hourStart)}–{formatHour12(hourRange.hourEnd)}
+              </span>
+            )}
+          </p>
         </div>
       </div>
 
@@ -264,10 +338,13 @@ export function AppointmentCalendar({
         />
       ) : (
         <WeekDayBoard
-          days={view === 'day' ? [anchor] : weekDays}
+          days={view === 'day' ? [dayViewColumn] : weekDays}
           appointments={appointments}
           colorMode={colorMode}
           timezone={timezone}
+          hourRange={hourRange}
+          hourSlots={hourSlots}
+          gridHeightRem={gridHeightRem}
           nowLinePct={nowLinePct}
           onSelect={setSelected}
         />
@@ -302,7 +379,7 @@ function CalendarStatusLegend() {
         const c = STATUS_COLORS[key];
         return (
           <span key={key} className="flex items-center gap-2 text-xs text-text-primary">
-            <span className={cn('h-3 w-3 rounded-sm border border-l-[3px]', c.bg, c.border, c.accent)} />
+            <span className={cn('h-3 w-3 shrink-0 rounded-sm', c.dot)} aria-hidden />
             {label}
           </span>
         );
@@ -316,6 +393,9 @@ function WeekDayBoard({
   appointments,
   colorMode,
   timezone,
+  hourRange,
+  hourSlots,
+  gridHeightRem,
   nowLinePct,
   onSelect,
 }: {
@@ -323,6 +403,9 @@ function WeekDayBoard({
   appointments: CalendarAppointment[];
   colorMode: 'status' | 'provider';
   timezone: string;
+  hourRange: CalendarHourRange;
+  hourSlots: number[];
+  gridHeightRem: number;
   nowLinePct: number | null;
   onSelect: (a: CalendarAppointment) => void;
 }) {
@@ -333,8 +416,9 @@ function WeekDayBoard({
       <div className="flex border-b border-slate-200 dark:border-slate-800">
         <div className="w-[72px] shrink-0 border-r border-slate-200 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/70" />
         {days.map((day) => {
-          const count = appointmentsForDay(appointments, day).length;
-          const today = isToday(day);
+          const count = appointmentsForDay(appointments, day, timezone).length;
+          const today = isTodayInTimezone(day, timezone);
+          const header = formatDayHeaderInTimezone(day, timezone);
           return (
             <div
               key={`header-${day.toISOString()}`}
@@ -344,11 +428,11 @@ function WeekDayBoard({
               )}
             >
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-                {format(day, 'EEE')}
+                {header.weekday}
               </p>
               <div className="mt-0.5 flex items-center justify-center gap-1">
                 <span className={cn('text-sm font-semibold', today ? 'text-brand-700 dark:text-brand-300' : 'text-slate-700 dark:text-slate-200')}>
-                  {format(day, 'd MMM')}
+                  {header.dateLabel}
                 </span>
                 {count > 0 && (
                   <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -363,22 +447,28 @@ function WeekDayBoard({
 
       <div className="flex">
         <div className="w-[72px] shrink-0 border-r border-slate-200 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/70">
-          {HOUR_SLOTS.map((min) => (
+          {hourSlots.map((min) => (
             <div key={`time-${min}`} className="flex h-12 items-start justify-end pr-2 text-[11px] font-medium text-slate-500 dark:text-slate-400">
               {min % 60 === 0
-                ? format(new Date(2000, 0, 1, Math.floor(min / 60), 0), 'h a')
+                ? format(new Date(2000, 0, 1, Math.floor(min / 60), min % 60), 'h a')
                 : null}
             </div>
           ))}
         </div>
 
         {days.map((day) => {
-          const blocks = layoutDayBlocks(appointments, day, {
-            maxVisibleColumns: 3,
-            showOverflowChip: true,
-            layoutMode: 'stack',
-          });
-          const today = isToday(day);
+          const blocks = applyVerticalCardGaps(
+            layoutDayBlocks(appointments, day, {
+              maxVisibleColumns: 3,
+              showOverflowChip: true,
+              layoutMode: 'stack',
+              hourStart: hourRange.hourStart,
+              hourEnd: hourRange.hourEnd,
+              timezone,
+            }),
+            gridHeightRem,
+          );
+          const today = isTodayInTimezone(day, timezone);
           return (
             <div
               key={`lane-${day.toISOString()}`}
@@ -388,7 +478,7 @@ function WeekDayBoard({
               )}
             >
               <div className="absolute inset-0">
-                {HOUR_SLOTS.map((min) => (
+                {hourSlots.map((min) => (
                   <div
                     key={`line-${day.toISOString()}-${min}`}
                     className={cn('h-12 border-b border-slate-100 dark:border-slate-800', min % 60 !== 0 && 'border-dashed')}
@@ -396,8 +486,8 @@ function WeekDayBoard({
                 ))}
               </div>
 
-              <div className="relative px-1.5" style={{ height: `${GRID_HEIGHT}rem` }}>
-                {nowLinePct !== null && isSameDay(day, new Date()) && (
+              <div className="relative px-1.5" style={{ height: `${gridHeightRem}rem` }}>
+                {nowLinePct !== null && today && (
                   <div
                     className="pointer-events-none absolute left-0 right-0 z-20 flex items-center"
                     style={{ top: `${nowLinePct}%` }}
@@ -422,90 +512,31 @@ function WeekDayBoard({
                   const pos = blockColumnLayout(b.column, b.columnCount, {
                     reserveOverflowSlot: b.hasOverflowSlot,
                   });
-                  const veryThin = b.heightPct < 7;
-                  const thin = b.heightPct < 10;
-                  const roomy = b.heightPct >= 14;
-                  const denseColumn = b.columnCount >= 3;
-                  const showService = b.heightPct >= 14 && !denseColumn;
-                  const showProvider = b.heightPct >= 20 && isSingleDay && !denseColumn;
-                  const showDuration = b.heightPct >= 12;
-                  const startLabel = safeFormatInTz(b.startUtc, timezone, 'h:mm');
-                  const endLabel = safeFormatInTz(b.endUtc, timezone, 'h:mm');
-                  const durationLabel = `${appointmentDurationMinutes(b.startUtc, b.endUtc)}m`;
-                  const cardPaddingClass = veryThin
-                    ? 'px-2 py-0.5'
-                    : thin
-                      ? 'px-2 py-1'
-                      : roomy
-                        ? 'px-3 py-2'
-                        : 'px-2.5 py-1.5';
-                  const timePillClass = cn(
-                    'inline-flex max-w-full items-center rounded-md bg-white/18 font-bold uppercase tracking-wide text-white',
-                    veryThin
-                      ? 'px-2 py-0 text-xs leading-tight'
-                      : thin
-                        ? 'px-2 py-0.5 text-[11px]'
-                        : roomy
-                          ? 'px-2.5 py-0.5 text-base'
-                          : 'px-2 py-0.5 text-xs',
-                  );
+                  const cardTitle = `${bookingCardTitle(b)} · ${bookingCardTimeRange(b.startUtc, b.endUtc, timezone)}${
+                    b.customer?.name?.trim() ? ` · ${b.customer.name.trim()}` : ''
+                  }`;
+                  const slotHeight = `calc(${b.heightPct}% - ${CALENDAR_CARD_MARGIN_PX}px)`;
 
                   return (
                     <button
                       key={b.id}
                       type="button"
-                      title={`${b.customer.name} - ${b.service.name}`}
+                      title={cardTitle}
                       onClick={() => onSelect(b)}
                       className={cn(
-                        'absolute z-10 overflow-hidden rounded-xl text-left shadow-sm transition hover:z-20 hover:shadow-md hover:-translate-y-[1px]',
-                        cardPaddingClass,
-                        veryThin && 'flex items-center',
-                        eventClasses(b, colorMode),
+                        'absolute z-10 flex min-h-fit flex-col text-left',
+                        BOOKING_CARD_SHELL,
                       )}
                       style={{
-                        top: `calc(${b.topPct}% + 2px)`,
-                        height: `calc(${b.heightPct}% - 4px)`,
+                        top: `${b.topPct}%`,
+                        height: `max(${slotHeight}, max-content)`,
+                        minHeight: 'max-content',
                         left: pos.left,
                         width: pos.width,
-                        ...eventStyle(b, colorMode),
+                        marginBottom: CALENDAR_CARD_MARGIN_PX,
                       }}
                     >
-                      {veryThin ? (
-                        <span className={timePillClass}>
-                          <span className="truncate">{startLabel} - {endLabel}</span>
-                        </span>
-                      ) : (
-                        <>
-                          <div className="flex items-center justify-between gap-1">
-                            <span className={timePillClass}>
-                              <span className="truncate">{startLabel} - {endLabel}</span>
-                            </span>
-                            {showDuration && (
-                              <span className={cn('shrink-0 font-bold text-white/90', thin ? 'text-[10px]' : 'text-[11px]')}>
-                                {durationLabel}
-                              </span>
-                            )}
-                          </div>
-                          <span
-                            className={cn(
-                              'block truncate font-bold leading-tight text-white',
-                              thin ? 'mt-1 text-xs' : roomy ? 'mt-1.5 text-lg' : 'mt-1 text-sm',
-                            )}
-                          >
-                            {b.customer.name}
-                          </span>
-                          {showService && (
-                            <span className="mt-1 block truncate rounded-md bg-white/16 px-2 py-0.5 text-sm font-semibold leading-tight text-white/95">
-                              {b.service.name}
-                            </span>
-                          )}
-                          {showProvider && (
-                            <span className="mt-1 block truncate text-xs font-semibold leading-tight text-white/85">
-                              {b.provider.name}
-                            </span>
-                          )}
-                        </>
-                      )}
+                      <BookingCardContent appt={b} timezone={timezone} />
                     </button>
                   );
                 })}
@@ -542,9 +573,9 @@ function MonthBoard({
       </div>
       <div className="grid grid-cols-7">
         {days.map((day) => {
-          const dayAppts = appointmentsForDay(appointments, day);
-          const today = isToday(day);
-          const inMonth = isCurrentMonth(day, anchor);
+          const dayAppts = appointmentsForDay(appointments, day, timezone);
+          const today = isTodayInTimezone(day, timezone);
+          const inMonth = isCurrentMonthInTimezone(day, anchor, timezone);
 
           return (
             <div
@@ -557,7 +588,7 @@ function MonthBoard({
             >
               <div className="mb-1.5 flex items-center justify-between">
                 <span className={cn('text-xs font-semibold', today ? 'text-brand-700 dark:text-brand-300' : 'text-slate-600 dark:text-slate-300')}>
-                  {format(day, 'd')}
+                  {formatInTimeZone(day, timezone, 'd')}
                 </span>
                 {dayAppts.length > 0 && (
                   <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold text-brand-700">
@@ -621,7 +652,9 @@ function DayOverflowPopover({
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-80 p-2" align="start">
-        <p className="mb-2 text-xs font-semibold text-text-secondary">{format(day, 'EEEE, MMM d')}</p>
+        <p className="mb-2 text-xs font-semibold text-text-secondary">
+          {formatDayHeaderInTimezone(day, timezone).longLabel}
+        </p>
         <ul className="max-h-64 space-y-1 overflow-y-auto">
           {appointments.map((a) => (
             <li key={a.id}>

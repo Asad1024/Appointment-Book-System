@@ -227,6 +227,7 @@ Slotwise POSTs JSON to your webhook URL when appointments change.
 | `appointment.booked` | New booking confirmed |
 | `appointment.cancelled` | Customer or admin cancels |
 | `appointment.rescheduled` | Customer or admin changes date/time |
+| `appointment.status_changed` | Admin changes status (e.g. checked in, completed) |
 
 Example (`appointment.booked`):
 
@@ -249,21 +250,41 @@ Example (`appointment.booked`):
     "product": "crm",
     "campaign": "q2",
     "source": "leadsreach",
+    "ref": "lead_8821_deal_9",
     "rescheduleCount": 0
   }
 }
 ```
 
+`ref` is set when booking from a partner session (Leads Reach). CRM uses it to attach timeline activities to the correct lead/deal.
+
 `appointment.rescheduled` includes `previousStartUtc` (ISO string). Admin actions may include `rescheduledByAdmin` or `cancelledByAdmin`: true.
 
-Configure per organization (`webhookUrl`, `webhookSecret`) or globally via `.env`:
+`appointment.status_changed` includes `previousStatus` and `newStatus` (e.g. `confirmed` → `completed`).
 
-```
-WEBHOOK_URL=https://your-product.com/api/webhooks/appointments
-WEBHOOK_SECRET=your-hmac-secret
-```
+View links on every event (for CRM “Open in Slotwise”):
 
-Verify with header `X-Webhook-Signature` (HMAC-SHA256 of the raw body).
+| Field | Description |
+|-------|-------------|
+| `manageToken` | Secret token for customer manage page |
+| `manageUrl` | Full URL `{WEB_URL}/manage/{token}` — cancel/reschedule without admin login |
+| `partnerViewUrl` | Same as `manageUrl` (preferred for partner UIs) |
+| `adminViewUrl` | `{WEB_URL}/admin/appointments/{id}` — staff only |
+
+Lookup by id: `GET /partner/v1/appointments/:appointmentId` (Bearer partner API key) returns the same `data` shape.
+
+See [leadsreach-webhook-testing.md](./leadsreach-webhook-testing.md) for local testing with Leads Reach.
+
+Configure in **Admin → Settings → Integrations → Outbound webhooks**:
+
+1. Paste the partner’s **Webhook URL** (e.g. `https://crm.example.com/api/webhooks/appointments`).
+2. Save — Slotwise **auto-generates** a signing secret (`whsec_…`) and shows it **once**.
+3. Copy that secret into the partner app’s server env (e.g. Leads Reach `APPOINTMENT_WEBHOOK_SECRET`).
+4. Use **Regenerate signing secret** if you rotate credentials (updates the partner app too).
+
+Dev fallback (optional): `WEBHOOK_URL` + `WEBHOOK_SECRET` in `.env` if org settings are empty.
+
+Verify with header `X-Webhook-Signature` (HMAC-SHA256 hex of the raw JSON body).
 
 ## 6. Customer accounts (optional)
 
