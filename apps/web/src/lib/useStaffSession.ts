@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { apiAuth, fetchMe, logout, type AuthUser } from './api';
-import { STAFF_ROLES } from '@pkg/shared-types';
+import { STAFF_ROLES, UserRole } from '@pkg/shared-types';
 
 export function useStaffSession({ redirectToLogin = true } = {}) {
   const router = useRouter();
@@ -15,6 +15,9 @@ export function useStaffSession({ redirectToLogin = true } = {}) {
   const refresh = useCallback(async () => {
     try {
       const me = await fetchMe();
+      if (me.role === UserRole.SUPER_ADMIN) {
+        throw new Error('Use platform portal');
+      }
       if (!STAFF_ROLES.includes(me.role as (typeof STAFF_ROLES)[number])) {
         throw new Error('Staff access required');
       }
@@ -41,5 +44,13 @@ export function useStaffSession({ redirectToLogin = true } = {}) {
     router.push('/login');
   };
 
-  return { user, loading, error, setError, refresh, signOut, isOrgAdmin: user?.role === 'org_admin' || user?.role === 'super_admin' };
+  return {
+    user,
+    loading,
+    error,
+    setError,
+    refresh,
+    signOut,
+    isOrgAdmin: user?.role === 'org_admin',
+  };
 }

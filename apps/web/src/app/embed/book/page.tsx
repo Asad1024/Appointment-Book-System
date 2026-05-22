@@ -3,13 +3,15 @@
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { BookingWizard } from '@/components/BookingWizard';
+import { resolveOrgSlug } from '@/lib/resolve-org-slug';
 
 function EmbedBookContent() {
   const search = useSearchParams();
+  const org = resolveOrgSlug(search);
   return (
     <BookingWizard
       params={{
-        org: search.get('org') ?? undefined,
+        org: org || undefined,
         product: search.get('product') ?? undefined,
         source: search.get('source') ?? undefined,
         campaign: search.get('campaign') ?? undefined,

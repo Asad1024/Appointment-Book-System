@@ -1,5 +1,18 @@
 import { PrismaService } from '../prisma/prisma.service';
 
+export async function uniqueOrganizationSlug(
+  prisma: PrismaService,
+  base: string,
+): Promise<string> {
+  let n = 0;
+  while (true) {
+    const slug = n === 0 ? base : `${base}-${n}`;
+    const existing = await prisma.organization.findUnique({ where: { slug } });
+    if (!existing) return slug;
+    n++;
+  }
+}
+
 export function slugifyName(name: string): string {
   const base = name
     .toLowerCase()

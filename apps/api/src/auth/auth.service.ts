@@ -9,7 +9,12 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { randomBytes, createHash } from 'crypto';
 import { Response } from 'express';
-import { STAFF_ROLES, UserRole, parseReminderOffsetsJson } from '@pkg/shared-types';
+import {
+  STAFF_ROLES,
+  UserRole,
+  isPlatformOrgSlug,
+  parseReminderOffsetsJson,
+} from '@pkg/shared-types';
 import { ReminderConfigService } from '../notifications/reminder-config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../notifications/email.service';
@@ -53,6 +58,14 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex');
   }
 
+  private verificationUrl(token: string, email: string): string {
+    const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
+    const url = new URL('/verify-email', webUrl);
+    url.searchParams.set('token', token);
+    url.searchParams.set('email', email);
+    return url.toString();
+  }
+
   setSession(res: Response, user: { id: string; email: string; name: string; role: string; organizationId: string; emailVerified: boolean }) {
     this.cookies.setAuthCookies(res, user);
     return { user: this.userResponse(user) };
@@ -68,10 +81,21 @@ export class AuthService {
     if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    if (user.role === UserRole.CUSTOMER && !user.emailVerified) {
+    if (!user.emailVerified) {
       throw new ForbiddenException(
         'Please verify your email before signing in. Check your inbox for the verification link.',
       );
+    }
+    if (user.role !== UserRole.SUPER_ADMIN) {
+      const org = await this.prisma.organization.findUnique({
+        where: { id: user.organizationId },
+        select: { isActive: true },
+      });
+      if (org && !org.isActive) {
+        throw new ForbiddenException(
+          'This organization is inactive. Verify your email to activate it or contact support.',
+        );
+      }
     }
     if (user.isActive === false) {
       throw new ForbiddenException('This account has been deactivated. Contact your administrator.');
@@ -80,56 +104,125 @@ export class AuthService {
   }
 
   async registerCustomer(dto: RegisterDto, res: Response) {
+    if (dto.password !== dto.confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
     const email = dto.email.toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) throw new ConflictException('Email already registered');
+    if (existing && existing.role !== UserRole.CUSTOMER) {
+      throw new ConflictException('Email is already registered as a staff account');
+    }
+    if (
+      existing &&
+      !(await bcrypt.compare(dto.password, existing.passwordHash))
+    ) {
+      throw new ConflictException(
+        'Email already registered. Sign in with your existing password instead.',
+      );
+    }
+
+    const orgSlug = dto.orgSlug?.trim();
+    if (!orgSlug) throw new BadRequestException('Organization is required');
 
     const org = await this.prisma.organization.findUnique({
-      where: { slug: dto.orgSlug ?? 'demo-company' },
+      where: { slug: orgSlug },
     });
     if (!org) throw new BadRequestException('Organization not found');
+    if (isPlatformOrgSlug(org.slug)) {
+      throw new BadRequestException('Organization not found');
+    }
+    if (!org.isActive) {
+      throw new BadRequestException('This organization is not accepting registrations');
+    }
 
-    const passwordHash = await bcrypt.hash(dto.password, 10);
-    const verifyToken = randomBytes(32).toString('hex');
-    const verifyHash = this.hashToken(verifyToken);
-    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    let verifyToken: string | null = null;
+    const passwordHash = existing
+      ? existing.passwordHash
+      : await bcrypt.hash(dto.password, 10);
 
     const user = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({
-        data: {
+      let targetUser = existing;
+
+      if (!targetUser) {
+        verifyToken = randomBytes(32).toString('hex');
+        targetUser = await tx.user.create({
+          data: {
+            organizationId: org.id,
+            email,
+            passwordHash,
+            name: dto.name,
+            role: UserRole.CUSTOMER,
+            emailVerified: false,
+            emailVerifyToken: this.hashToken(verifyToken),
+            emailVerifyTokenExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          },
+        });
+      } else if (!targetUser.emailVerified) {
+        verifyToken = randomBytes(32).toString('hex');
+        targetUser = await tx.user.update({
+          where: { id: targetUser.id },
+          data: {
+            emailVerifyToken: this.hashToken(verifyToken),
+            emailVerifyTokenExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          },
+        });
+      }
+
+      const existingCustomer = await tx.customer.findUnique({
+        where: {
+          organizationId_email: {
+            organizationId: org.id,
+            email,
+          },
+        },
+      });
+      if (existingCustomer?.userId && existingCustomer.userId !== targetUser.id) {
+        throw new ConflictException(
+          'This email is already linked to a different account for this business',
+        );
+      }
+
+      await tx.customer.upsert({
+        where: {
+          organizationId_email: {
+            organizationId: org.id,
+            email,
+          },
+        },
+        update: {
+          name: dto.name,
+          phone: dto.phone,
+          userId: targetUser.id,
+        },
+        create: {
           organizationId: org.id,
           email,
-          passwordHash,
           name: dto.name,
-          role: UserRole.CUSTOMER,
-          emailVerified: false,
-          emailVerifyToken: verifyHash,
-          emailVerifyTokenExpires: verifyExpires,
+          phone: dto.phone,
+          userId: targetUser.id,
         },
       });
 
-      await tx.customer.upsert({
-        where: { email },
-        update: { name: dto.name, phone: dto.phone, userId: created.id },
-        create: { email, name: dto.name, phone: dto.phone, userId: created.id },
+      return targetUser;
+    });
+
+    if (verifyToken) {
+      const { subject, html } = emailVerificationEmail({
+        name: dto.name,
+        verifyUrl: this.verificationUrl(verifyToken, email),
       });
-
-      return created;
-    });
-
-    const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
-    const { subject, html } = emailVerificationEmail({
-      name: dto.name,
-      verifyUrl: `${webUrl}/verify-email?token=${verifyToken}`,
-    });
-    await this.email.send(email, subject, html);
+      await this.email.send(email, subject, html);
+    }
 
     this.cookies.clearAuthCookies(res);
 
     return {
-      requiresEmailVerification: true,
+      requiresEmailVerification: !user.emailVerified,
       email,
-      message: 'Account created. Check your email and click the verification link before signing in.',
+      message: user.emailVerified
+        ? 'Account linked. You can sign in now.'
+        : 'Account created. Check your email and click the verification link before signing in.',
     };
   }
 
@@ -149,25 +242,48 @@ export class AuthService {
       },
     });
 
-    const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
     const { subject, html } = emailVerificationEmail({
       name: user.name,
-      verifyUrl: `${webUrl}/verify-email?token=${verifyToken}`,
+      verifyUrl: this.verificationUrl(verifyToken, email),
     });
     await this.email.send(email, subject, html);
 
     return { ok: true, message: 'If that email is registered and unverified, we sent a new link.' };
   }
 
-  async verifyEmail(token: string, res?: Response) {
+  async verifyEmail(token: string, res?: Response, emailHintRaw?: string) {
     const hash = this.hashToken(token);
-    const user = await this.prisma.user.findFirst({
+    let user = await this.prisma.user.findFirst({
       where: {
         emailVerifyToken: hash,
         emailVerifyTokenExpires: { gt: new Date() },
       },
     });
-    if (!user) throw new BadRequestException('Invalid or expired verification link');
+    if (!user) {
+      user = await this.prisma.user.findFirst({
+        where: {
+          emailVerifyToken: token,
+          emailVerifyTokenExpires: { gt: new Date() },
+        },
+      });
+    }
+    if (!user) {
+      const emailHint = emailHintRaw?.trim().toLowerCase();
+      if (emailHint) {
+        const hinted = await this.prisma.user.findUnique({
+          where: { email: emailHint },
+          select: { emailVerified: true },
+        });
+        if (hinted?.emailVerified) {
+          return {
+            ok: true,
+            alreadyVerified: true,
+            message: 'Email is already verified. Please sign in.',
+          };
+        }
+      }
+      throw new BadRequestException('Invalid or expired verification link');
+    }
 
     const updated = await this.prisma.user.update({
       where: { id: user.id },
@@ -178,10 +294,17 @@ export class AuthService {
       },
     });
 
+    if (updated.role === UserRole.ORG_ADMIN) {
+      await this.prisma.organization.updateMany({
+        where: { id: updated.organizationId, isActive: false },
+        data: { isActive: true },
+      });
+    }
+
     if (res) {
       return this.setSession(res, updated);
     }
-    return { ok: true, message: 'Email verified' };
+    return { ok: true, alreadyVerified: false, message: 'Email verified' };
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
@@ -198,8 +321,21 @@ export class AuthService {
         },
       });
       const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
+      const resetUrl = new URL('/reset-password', webUrl);
+      resetUrl.searchParams.set('token', token);
+      if (
+        dto.role === 'customer' ||
+        dto.role === 'provider' ||
+        dto.role === 'admin' ||
+        dto.role === 'super_admin'
+      ) {
+        resetUrl.searchParams.set('role', dto.role);
+      }
+      if (dto.role === 'customer' && dto.org) {
+        resetUrl.searchParams.set('org', dto.org.trim().toLowerCase());
+      }
       const { subject, html } = passwordResetEmail({
-        resetUrl: `${webUrl}/reset-password?token=${token}`,
+        resetUrl: resetUrl.toString(),
       });
       await this.email.send(email, subject, html);
     }
@@ -242,27 +378,57 @@ export class AuthService {
   }
 
   async getMe(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { organization: { select: { slug: true, name: true } } },
+    });
     if (!user) throw new UnauthorizedException();
     if (user.role === UserRole.CUSTOMER && !user.emailVerified) {
       throw new ForbiddenException(
         'Please verify your email before accessing your account.',
       );
     }
-    const base = this.userResponse(user);
-    if (user.role !== UserRole.CUSTOMER) return base;
+    if (user.role !== UserRole.CUSTOMER) {
+      return {
+        ...this.userResponse(user),
+        organizationId: user.organizationId,
+        organizationSlug: user.organization.slug,
+        organizationName: user.organization.name,
+      };
+    }
 
-    const customer = await this.prisma.customer.findFirst({
-      where: { OR: [{ userId: user.id }, { email: user.email }] },
+    const profiles = await this.prisma.customer.findMany({
+      where: {
+        OR: [
+          { userId: user.id },
+          { userId: null, email: user.email },
+        ],
+      },
+      include: {
+        organization: { select: { id: true, slug: true, name: true } },
+      },
+      orderBy: { createdAt: 'asc' },
     });
+    const primaryProfile =
+      profiles.find((p) => p.organizationId === user.organizationId) ?? profiles[0] ?? null;
+    const reminderProfile = profiles.find((p) => p.userId === user.id) ?? primaryProfile;
+    const organizations = profiles
+      .map((p) => p.organization)
+      .filter(
+        (org, idx, all) => all.findIndex((candidate) => candidate.id === org.id) === idx,
+      );
 
     return {
-      ...base,
-      reminderPreferences: customer
+      ...this.userResponse(user),
+      organizationId: primaryProfile?.organizationId ?? user.organizationId,
+      organizationSlug: primaryProfile?.organization.slug ?? user.organization.slug,
+      organizationName: primaryProfile?.organization.name ?? user.organization.name,
+      organizations,
+      reminderPreferences: reminderProfile
         ? {
-            remindersEnabled: customer.remindersEnabled,
-            reminderOffsetsMinutes: customer.reminderOffsetsMinutes
-              ? parseReminderOffsetsJson(customer.reminderOffsetsMinutes, [])
+            remindersEnabled: reminderProfile.remindersEnabled,
+            reminderOffsetsMinutes: reminderProfile.reminderOffsetsMinutes
+              ? parseReminderOffsetsJson(reminderProfile.reminderOffsetsMinutes, [])
               : null,
           }
         : { remindersEnabled: true, reminderOffsetsMinutes: null },
@@ -302,17 +468,42 @@ export class AuthService {
         customerUpdate.reminderOffsetsMinutes =
           chosen.length > 0 ? this.reminderConfig.offsetsForStorage(chosen) : null;
       }
-      await this.prisma.customer.upsert({
-        where: { email: user.email },
-        update: customerUpdate,
-        create: {
-          email: user.email,
-          name: updated.name,
-          userId: user.id,
-          remindersEnabled: dto.remindersEnabled ?? true,
-          reminderOffsetsMinutes: customerUpdate.reminderOffsetsMinutes ?? null,
-        },
+      const linkedProfiles = await this.prisma.customer.findMany({
+        where: { userId: user.id },
+        select: { id: true },
       });
+
+      if (linkedProfiles.length > 0) {
+        await this.prisma.customer.updateMany({
+          where: { userId: user.id },
+          data: {
+            ...customerUpdate,
+            ...(dto.name ? { name: updated.name } : {}),
+          },
+        });
+      } else {
+        await this.prisma.customer.upsert({
+          where: {
+            organizationId_email: {
+              organizationId: user.organizationId,
+              email: user.email,
+            },
+          },
+          update: {
+            ...customerUpdate,
+            userId: user.id,
+            ...(dto.name ? { name: updated.name } : {}),
+          },
+          create: {
+            organizationId: user.organizationId,
+            email: user.email,
+            name: updated.name,
+            userId: user.id,
+            remindersEnabled: dto.remindersEnabled ?? true,
+            reminderOffsetsMinutes: customerUpdate.reminderOffsetsMinutes ?? null,
+          },
+        });
+      }
     }
 
     return this.getMe(userId);
@@ -326,7 +517,12 @@ export class AuthService {
     const limit = Math.min(50, Math.max(1, query.limit ?? 20));
     const skip = (page - 1) * limit;
 
-    const where = { customer: { email: user.email } };
+    const where = {
+      OR: [
+        { customer: { userId: user.id } },
+        { customer: { userId: null, email: user.email } },
+      ],
+    };
     const [data, total] = await Promise.all([
       this.prisma.appointment.findMany({
         where,

@@ -37,7 +37,7 @@ export function useProviderSession({ redirectToLogin = true } = {}) {
       setProfile(null);
       if (redirectToLogin) {
         const next = pathname?.startsWith('/provider') ? pathname : '/provider/dashboard';
-        router.replace(`/login?next=${encodeURIComponent(next)}`);
+        router.replace(`/staff/login?next=${encodeURIComponent(next)}`);
       }
     } finally {
       setLoading(false);
@@ -52,7 +52,7 @@ export function useProviderSession({ redirectToLogin = true } = {}) {
     await logout();
     setUser(null);
     setProfile(null);
-    router.push('/login');
+    router.push('/staff/login');
   };
 
   return { user, profile, loading, refresh, signOut, providerId: user?.providerId ?? profile?.id ?? '' };

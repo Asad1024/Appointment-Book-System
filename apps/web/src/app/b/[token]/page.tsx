@@ -42,8 +42,8 @@ export default function ShortBookingPage() {
           <p className="mt-2 text-xs text-text-muted">
             This secure link has expired. Ask your contact to send a new booking link.
           </p>
-          <Link href="/book" className="mt-6 inline-block">
-            <Button variant="outline">Browse public booking</Button>
+          <Link href="/" className="mt-6 inline-block">
+            <Button variant="outline">Go to homepage</Button>
           </Link>
         </CardBody>
       </Card>

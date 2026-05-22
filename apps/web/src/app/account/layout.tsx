@@ -15,7 +15,7 @@ export default function AccountLayout({ children }: { children: React.ReactNode 
     if (loading) return;
 
     if (!user) {
-      router.replace('/login');
+      router.replace('/customer/login');
       return;
     }
 

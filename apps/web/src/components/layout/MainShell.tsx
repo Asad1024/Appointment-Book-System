@@ -13,6 +13,9 @@ export function MainShell({ children }: { children: React.ReactNode }) {
     pathname?.startsWith('/b/');
   const isAuth =
     pathname?.startsWith('/login') ||
+    pathname?.startsWith('/staff/login') ||
+    pathname?.startsWith('/customer/login') ||
+    pathname?.startsWith('/platform/login') ||
     pathname?.startsWith('/register') ||
     pathname?.startsWith('/forgot-password') ||
     pathname?.startsWith('/reset-password') ||

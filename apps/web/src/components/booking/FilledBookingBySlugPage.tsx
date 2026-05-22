@@ -4,6 +4,7 @@ import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { FilledBooking } from '@/components/booking/FilledBooking';
+import { OrgRequiredGate } from '@/components/booking/OrgRequiredGate';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { CustomerLayout } from '@/components/shells/CustomerLayout';
 import { PageShell } from '@/components/layout/PageShell';
@@ -11,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
 import { useAuthUser } from '@/lib/useAuthUser';
+import { resolveOrgSlug } from '@/lib/resolve-org-slug';
 
 function SlugBookContent({
   providerSlug,
@@ -22,6 +24,11 @@ function SlugBookContent({
   embed?: boolean;
 }) {
   const search = useSearchParams();
+  const org = resolveOrgSlug(search);
+
+  if (!org) {
+    return <OrgRequiredGate />;
+  }
 
   if (!providerSlug?.trim() || !serviceSlug?.trim()) {
     return (
@@ -39,7 +46,7 @@ function SlugBookContent({
   return (
     <FilledBooking
       params={{
-        org: search.get('org') ?? undefined,
+        org,
         providerSlug,
         serviceSlug,
         source: search.get('source') ?? undefined,

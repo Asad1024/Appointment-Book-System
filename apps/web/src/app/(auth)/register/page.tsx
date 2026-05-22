@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
@@ -13,9 +14,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordField } from '@/components/shared/PasswordField';
 import { PasswordStrength } from '@/components/shared/PasswordStrength';
+import { OrgRequiredGate } from '@/components/booking/OrgRequiredGate';
+import { resolveOrgContext } from '@/lib/resolve-org-slug';
 
-export default function RegisterPage() {
+function RegisterFormContent() {
   const router = useRouter();
+  const search = useSearchParams();
+  const orgContext = resolveOrgContext(search);
+  const orgSlug = orgContext.slug;
+  const orgFromQuery = orgContext.source === 'query' ? orgSlug : '';
+
   const {
     register,
     handleSubmit,
@@ -25,22 +33,49 @@ export default function RegisterPage() {
 
   const password = watch('password') ?? '';
 
+  if (!orgSlug) {
+    return <OrgRequiredGate />;
+  }
+
   async function onSubmit(values: RegisterForm) {
     try {
       await ensureCsrf();
-      await api('/auth/register', {
+      const result = await api<{
+        requiresEmailVerification: boolean;
+        email: string;
+        message: string;
+      }>('/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ ...values, orgSlug: 'demo-company' }),
+        body: JSON.stringify({ ...values, orgSlug }),
       });
-      toast.success('Account created! Check your email for the verification link.');
-      router.push(`/verify-email?pending=1&email=${encodeURIComponent(values.email)}`);
+      toast.success(result.message || 'Registration completed');
+      if (result.requiresEmailVerification) {
+        const verifyParams = new URLSearchParams({
+          pending: '1',
+          role: 'customer',
+          email: values.email,
+        });
+        if (orgFromQuery) {
+          verifyParams.set('org', orgFromQuery);
+        }
+        router.push(`/verify-email?${verifyParams.toString()}`);
+      } else {
+        router.push(
+          orgFromQuery
+            ? `/customer/login?org=${encodeURIComponent(orgFromQuery)}`
+            : '/customer/login',
+        );
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Registration failed');
     }
   }
 
   return (
-    <AuthShell title="Create your account" subtitle="Track all your bookings in one place">
+    <AuthShell
+      title="Create your account"
+      subtitle="Track appointments with this provider — use the same email you book with"
+    >
       <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
         <div>
           <Label htmlFor="name">Full name</Label>
@@ -62,6 +97,13 @@ export default function RegisterPage() {
           />
           <PasswordStrength password={password} />
         </div>
+        <PasswordField
+          id="confirm-password"
+          label="Confirm password"
+          autoComplete="new-password"
+          {...register('confirmPassword')}
+          error={errors.confirmPassword?.message}
+        />
         <Button type="submit" className="w-full" loading={isSubmitting}>
           Create account
         </Button>
@@ -79,10 +121,31 @@ export default function RegisterPage() {
       </form>
       <p className="mt-4 text-center text-sm text-text-secondary">
         Already have an account?{' '}
-        <Link href="/login" className="font-medium text-brand-600 hover:underline">
+        <Link
+          href={
+            orgFromQuery
+              ? `/customer/login?org=${encodeURIComponent(orgFromQuery)}`
+              : '/customer/login'
+          }
+          className="font-medium text-brand-600 hover:underline"
+        >
           Sign in
         </Link>
       </p>
     </AuthShell>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense
+      fallback={
+        <AuthShell title="Create your account" subtitle="Loading…">
+          <div className="h-40" />
+        </AuthShell>
+      }
+    >
+      <RegisterFormContent />
+    </Suspense>
   );
 }

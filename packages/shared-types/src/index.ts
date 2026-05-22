@@ -30,6 +30,13 @@ export {
   type ReminderOffsetPreset,
 } from './reminders';
 
+/** Internal org for platform operators — not used for public booking */
+export const PLATFORM_ORG_SLUG = 'slotwise-platform';
+
+export function isPlatformOrgSlug(slug: string | null | undefined): boolean {
+  return slug === PLATFORM_ORG_SLUG;
+}
+
 export enum UserRole {
   SUPER_ADMIN = 'super_admin',
   ORG_ADMIN = 'org_admin',

@@ -31,6 +31,8 @@ import {
   resolveInitialCustomerTimezone,
   saveBookingTimezone,
 } from '@/lib/booking-timezone';
+import { addCalendarDays, calendarDateInTimezone } from '@/lib/booking-dates';
+import { OrgRequiredGate } from '@/components/booking/OrgRequiredGate';
 import { StepIndicator } from '@/components/booking/StepIndicator';
 import { WizardStepNav } from '@/components/booking/WizardStepNav';
 import { cn } from '@/lib/utils';
@@ -71,7 +73,7 @@ type Service = {
   intakeFields?: IntakeField[];
 };
 type Provider = { id: string; name: string };
-type Slot = { startUtc: string; endUtc: string };
+type Slot = { startUtc: string; endUtc: string; status?: 'available' | 'booked' };
 
 type IntegrationContext = {
   branding: { logoUrl?: string; primaryColor: string; currency?: string };
@@ -124,8 +126,20 @@ const stepMotion = {
 const selectedChoiceClass =
   'border-brand-500 bg-brand-50/80 ring-2 ring-brand-500/30 dark:border-brand-600 dark:bg-brand-950/35 dark:ring-brand-700/40';
 
+function isCurrentHostTenantScoped(orgSlug: string): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname.toLowerCase();
+  return host.startsWith(`${orgSlug.toLowerCase()}.`);
+}
+
 export function BookingWizard({ params }: { params: BookingParams }) {
-  const org = params.org ?? 'demo-company';
+  const org = params.org?.trim();
+  if (!org) {
+    return <OrgRequiredGate />;
+  }
+  const customerLoginHref = isCurrentHostTenantScoped(org)
+    ? '/customer/login'
+    : `/customer/login?org=${encodeURIComponent(org)}`;
   const [step, setStep] = useState(0);
   const [ctx, setCtx] = useState<IntegrationContext | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -402,13 +416,12 @@ export function BookingWizard({ params }: { params: BookingParams }) {
     }
   }, [step, stepOffset, customerName, customerEmail, customerPhone, detailsForm]);
 
-  const maxBookDate = (() => {
-    const days = ctx?.location.bookingWindowDays ?? 60;
-    const d = new Date();
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
-  })();
-  const minBookDate = new Date().toISOString().slice(0, 10);
+  const locationTz = selectedLocation?.timezone ?? timezone ?? 'UTC';
+  const minBookDate = calendarDateInTimezone(locationTz);
+  const maxBookDate = useMemo(() => {
+    const days = selectedLocation?.bookingWindowDays ?? ctx?.location.bookingWindowDays ?? 60;
+    return addCalendarDays(minBookDate, days, locationTz);
+  }, [selectedLocation?.bookingWindowDays, ctx?.location.bookingWindowDays, minBookDate, locationTz]);
 
   const providerLabel =
     providerId === 'any' ? 'Any available' : selectedProvider?.name;
@@ -716,16 +729,12 @@ export function BookingWizard({ params }: { params: BookingParams }) {
     );
   }
 
-  const header = (
-    <>
-      <img src="/logo.png" alt="" className="h-8 w-8 shrink-0 rounded-lg object-contain" />
-      {params.source && !params.partner && (
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          Referred from <span className="font-medium text-slate-700 dark:text-slate-200">{params.source}</span>
-        </p>
-      )}
-    </>
-  );
+  const header =
+    params.source && !params.partner ? (
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        Referred from <span className="font-medium text-slate-700 dark:text-slate-200">{params.source}</span>
+      </p>
+    ) : undefined;
 
   return (
     <BookingWizardLayout summary={summaryPanel} header={header}>
@@ -922,7 +931,7 @@ export function BookingWizard({ params }: { params: BookingParams }) {
                       'Your details were loaded from your CRM. You can edit them if needed.'
                     ) : (
                       <>
-                        <Link href="/login" className="font-medium text-brand-600 hover:underline">
+                        <Link href={customerLoginHref} className="font-medium text-brand-600 hover:underline">
                           Sign in
                         </Link>{' '}
                         to pre-fill, or continue as guest.
@@ -1168,4 +1177,3 @@ export function BookingWizard({ params }: { params: BookingParams }) {
     </BookingWizardLayout>
   );
 }
-

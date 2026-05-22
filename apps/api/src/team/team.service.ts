@@ -16,6 +16,7 @@ import { CreateInviteDto } from './dto/create-invite.dto';
 import { AcceptInviteDto } from './dto/accept-invite.dto';
 
 const INVITE_TTL_DAYS = 7;
+const MANAGED_TEAM_ROLES: UserRole[] = [UserRole.ORG_ADMIN, UserRole.LOCATION_MANAGER];
 
 @Injectable()
 export class TeamService {
@@ -34,7 +35,7 @@ export class TeamService {
     return this.prisma.user.findMany({
       where: {
         organizationId,
-        role: { in: STAFF_ROLES },
+        role: { in: MANAGED_TEAM_ROLES },
       },
       select: {
         id: true,
@@ -43,7 +44,6 @@ export class TeamService {
         role: true,
         isActive: true,
         createdAt: true,
-        provider: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -51,7 +51,7 @@ export class TeamService {
 
   private async getOrgMember(organizationId: string, memberId: string) {
     const user = await this.prisma.user.findFirst({
-      where: { id: memberId, organizationId, role: { in: STAFF_ROLES } },
+      where: { id: memberId, organizationId, role: { in: MANAGED_TEAM_ROLES } },
     });
     if (!user) throw new NotFoundException('Team member not found');
     return user;
@@ -76,7 +76,6 @@ export class TeamService {
         name: true,
         role: true,
         isActive: true,
-        provider: { select: { id: true, name: true } },
       },
     });
   }
@@ -92,12 +91,16 @@ export class TeamService {
 
   async listInvites(organizationId: string) {
     return this.prisma.teamInvite.findMany({
-      where: { organizationId, acceptedAt: null, expiresAt: { gt: new Date() } },
+      where: {
+        organizationId,
+        role: { in: MANAGED_TEAM_ROLES },
+        acceptedAt: null,
+        expiresAt: { gt: new Date() },
+      },
       select: {
         id: true,
         email: true,
         role: true,
-        providerId: true,
         expiresAt: true,
         createdAt: true,
         invitedBy: { select: { name: true, email: true } },
@@ -111,6 +114,9 @@ export class TeamService {
     invitedById: string,
     dto: CreateInviteDto,
   ) {
+    if (dto.role === UserRole.PROVIDER) {
+      throw new BadRequestException('Invite providers from the Providers page');
+    }
     if (!INVITABLE_STAFF_ROLES.includes(dto.role)) {
       throw new BadRequestException('Role cannot be invited');
     }
@@ -119,27 +125,16 @@ export class TeamService {
 
     const existingUser = await this.prisma.user.findUnique({ where: { email } });
     if (existingUser) {
+      if (existingUser.role === UserRole.CUSTOMER) {
+        throw new ConflictException('Email is registered as a customer. Use a work email.');
+      }
       if (existingUser.organizationId !== organizationId) {
         throw new ConflictException('Email is already used in another organization');
       }
       if (STAFF_ROLES.includes(existingUser.role as UserRole)) {
         throw new ConflictException('This person is already on your team');
       }
-      throw new ConflictException('Email is registered as a customer. Use a work email.');
-    }
-
-    if (dto.role === UserRole.PROVIDER) {
-      if (!dto.providerId) {
-        throw new BadRequestException('Select a provider profile for provider invites');
-      }
-      const provider = await this.prisma.provider.findFirst({
-        where: { id: dto.providerId, organizationId },
-      });
-      if (!provider) throw new BadRequestException('Provider not found');
-      const linked = await this.prisma.user.findFirst({
-        where: { providerId: dto.providerId },
-      });
-      if (linked) throw new ConflictException('This provider already has a user account');
+      throw new ConflictException('Email already registered');
     }
 
     const expiresAt = new Date();
@@ -155,7 +150,7 @@ export class TeamService {
         organizationId,
         email,
         role: dto.role,
-        providerId: dto.role === UserRole.PROVIDER ? dto.providerId : null,
+        providerId: null,
         token,
         invitedById,
         expiresAt,
@@ -197,16 +192,32 @@ export class TeamService {
     });
     if (!invite || invite.acceptedAt) throw new NotFoundException('Invite not found');
     if (invite.expiresAt < new Date()) throw new BadRequestException('Invite has expired');
+    let suggestedName: string | null = null;
+    let nameLocked = false;
+    if (invite.role === UserRole.PROVIDER && invite.providerId) {
+      const provider = await this.prisma.provider.findUnique({
+        where: { id: invite.providerId },
+        select: { name: true },
+      });
+      suggestedName = provider?.name ?? null;
+      nameLocked = Boolean(suggestedName);
+    }
 
     return {
       email: invite.email,
       role: invite.role,
       organizationName: invite.organization.name,
       expiresAt: invite.expiresAt,
+      suggestedName,
+      nameLocked,
     };
   }
 
   async acceptInvite(token: string, dto: AcceptInviteDto, res: Response) {
+    if (dto.password !== dto.confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
     const invite = await this.prisma.teamInvite.findUnique({
       where: { token },
       include: { organization: true },
@@ -216,27 +227,79 @@ export class TeamService {
 
     const email = invite.email.toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) throw new ConflictException('Email already registered');
+    if (existing) {
+      if (existing.role === UserRole.CUSTOMER) {
+        throw new ConflictException(
+          'This email is already used by a customer account. Use a different email or convert that account first.',
+        );
+      }
+      if (existing.organizationId !== invite.organizationId) {
+        throw new ConflictException(
+          'This email is already registered in another organization',
+        );
+      }
+      if (!(await bcrypt.compare(dto.password, existing.passwordHash))) {
+        throw new ConflictException(
+          'Use your existing account password to accept this invite',
+        );
+      }
+    }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
     const user = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({
-        data: {
-          organizationId: invite.organizationId,
-          email,
-          passwordHash,
-          name: dto.name,
-          role: invite.role,
-          providerId: invite.providerId,
-          emailVerified: true,
-        },
-      });
+      if (invite.role === UserRole.PROVIDER && invite.providerId) {
+        const provider = await tx.provider.findFirst({
+          where: { id: invite.providerId, organizationId: invite.organizationId },
+        });
+        if (!provider) {
+          throw new BadRequestException('Provider not found');
+        }
+        const linked = await tx.user.findFirst({
+          where: {
+            providerId: invite.providerId,
+            ...(existing ? { id: { not: existing.id } } : {}),
+          },
+        });
+        if (linked) {
+          throw new ConflictException('This provider already has a user account');
+        }
+      }
+
+      const created = existing
+        ? await tx.user.update({
+            where: { id: existing.id },
+            data: {
+              name: dto.name,
+              role: invite.role,
+              providerId: invite.providerId,
+              emailVerified: true,
+              isActive: true,
+            },
+          })
+        : await tx.user.create({
+            data: {
+              organizationId: invite.organizationId,
+              email,
+              passwordHash,
+              name: dto.name,
+              role: invite.role,
+              providerId: invite.providerId,
+              emailVerified: true,
+            },
+          });
 
       await tx.teamInvite.update({
         where: { id: invite.id },
         data: { acceptedAt: new Date() },
       });
+
+      if (invite.role === UserRole.PROVIDER && invite.providerId) {
+        await tx.provider.update({
+          where: { id: invite.providerId },
+          data: { isActive: true, email },
+        });
+      }
 
       return created;
     });

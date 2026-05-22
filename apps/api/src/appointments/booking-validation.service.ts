@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { intervalsOverlap } from '@pkg/scheduling-core';
-import { AppointmentStatus } from '@pkg/shared-types';
+import { AppointmentStatus, isPlatformOrgSlug } from '@pkg/shared-types';
 import { DateTime } from 'luxon';
 import { PrismaService } from '../prisma/prisma.service';
 import { AvailabilityService } from '../availability/availability.service';
@@ -22,12 +22,27 @@ export class BookingValidationService {
     private availability: AvailabilityService,
   ) {}
 
+  private assertLocationBookable(location: {
+    organization: { slug: string; isActive: boolean };
+  }) {
+    if (isPlatformOrgSlug(location.organization.slug)) {
+      throw new NotFoundException('Organization not found');
+    }
+    if (!location.organization.isActive) {
+      throw new BadRequestException('This organization is not accepting bookings');
+    }
+  }
+
   async validateServiceLocation(locationId: string, serviceId: string) {
     const [location, service] = await Promise.all([
-      this.prisma.location.findUnique({ where: { id: locationId } }),
+      this.prisma.location.findUnique({
+        where: { id: locationId },
+        include: { organization: { select: { slug: true, isActive: true } } },
+      }),
       this.prisma.service.findUnique({ where: { id: serviceId } }),
     ]);
     if (!location) throw new NotFoundException('Location not found');
+    this.assertLocationBookable(location);
     if (!service || !service.isActive || service.archivedAt) {
       throw new BadRequestException('Service not available');
     }
@@ -39,7 +54,10 @@ export class BookingValidationService {
 
   async validateCatalogLinks(locationId: string, serviceId: string, providerId: string) {
     const [location, service, provider, link] = await Promise.all([
-      this.prisma.location.findUnique({ where: { id: locationId } }),
+      this.prisma.location.findUnique({
+        where: { id: locationId },
+        include: { organization: { select: { slug: true, isActive: true } } },
+      }),
       this.prisma.service.findUnique({ where: { id: serviceId } }),
       this.prisma.provider.findUnique({ where: { id: providerId } }),
       this.prisma.serviceProvider.findUnique({
@@ -48,6 +66,7 @@ export class BookingValidationService {
     ]);
 
     if (!location) throw new NotFoundException('Location not found');
+    this.assertLocationBookable(location);
     if (!service || !service.isActive || service.archivedAt) {
       throw new BadRequestException('Service not available');
     }

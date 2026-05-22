@@ -8,12 +8,23 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from './email.service';
 import { UnipileWhatsAppService } from '../integrations/unipile-whatsapp.service';
 import type { NotificationJob } from './notifications.service';
+import { NotificationTemplateService } from './notification-template.service';
+import {
+  mapNotificationTypeToTemplateEvent,
+  reminderLabel,
+  renderTemplateString,
+} from './template-catalog';
 import {
   appointmentEmail,
   providerAppointmentEmail,
   type AppointmentEmailData,
 } from './templates';
 import { appointmentWhatsAppMessage } from './templates/appointment-whatsapp';
+import {
+  formatAppointmentWhenHtml,
+  formatAppointmentWhenPlain,
+} from './templates/format-appointment-when';
+import { emailLayout } from './templates/layout';
 import {
   buildGoogleCalendarUrl,
   calendarEventFromAppointment,
@@ -37,7 +48,79 @@ export class NotificationSenderService {
     private prisma: PrismaService,
     private email: EmailService,
     private whatsapp: UnipileWhatsAppService,
+    private notificationTemplates: NotificationTemplateService,
   ) {}
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private buildTemplateTokens(
+    data: AppointmentEmailData,
+    type: NotificationType,
+    reminderMinutesBefore?: number,
+  ): {
+    plain: Record<string, string>;
+    html: Record<string, string>;
+  } {
+    const reminder =
+      type === NotificationType.REMINDER ||
+      type === NotificationType.REMINDER_24H ||
+      type === NotificationType.REMINDER_1H
+        ? reminderLabel(reminderMinutesBefore)
+        : '';
+
+    const plainTokens: Record<string, string> = {
+      customer_name: data.customerName ?? '',
+      customer_email: data.customerEmail ?? '',
+      customer_phone: data.customerPhone ?? '',
+      service_name: data.serviceName ?? '',
+      provider_name: data.providerName ?? '',
+      location_name: data.locationName ?? '',
+      appointment_when_html: formatAppointmentWhenHtml(data),
+      appointment_when_plain: formatAppointmentWhenPlain(data),
+      manage_url: data.manageUrl ?? '',
+      google_calendar_url: data.googleCalendarUrl ?? '',
+      ics_download_url: data.icsDownloadUrl ?? '',
+      admin_appointment_url: data.adminAppointmentUrl ?? '',
+      reminder_label: reminder,
+    };
+
+    const htmlTokens: Record<string, string> = {};
+    for (const [key, value] of Object.entries(plainTokens)) {
+      htmlTokens[key] = key === 'appointment_when_html' ? value : this.escapeHtml(value);
+    }
+
+    return { plain: plainTokens, html: htmlTokens };
+  }
+
+  private renderCustomEmail(
+    subjectTemplate: string,
+    bodyTemplate: string,
+    tokens: { plain: Record<string, string>; html: Record<string, string> },
+  ): { subject: string; html: string } {
+    const subject = renderTemplateString(subjectTemplate, tokens.plain);
+    const renderedBody = renderTemplateString(bodyTemplate, tokens.html).replace(
+      /\r?\n/g,
+      '<br />',
+    );
+    return {
+      subject,
+      html: emailLayout(renderedBody),
+    };
+  }
+
+  private renderCustomText(
+    bodyTemplate: string,
+    tokens: { plain: Record<string, string>; html: Record<string, string> },
+  ): string {
+    return renderTemplateString(bodyTemplate, tokens.plain);
+  }
 
   private logTypeForJob(job: NotificationJob): string {
     if (job.type === NotificationType.REMINDER && job.reminderMinutesBefore) {
@@ -62,20 +145,20 @@ export class NotificationSenderService {
     }
 
     const logType = this.logTypeForJob(job);
-    const reminderOpts =
+    const reminderMinutesBefore =
       type === NotificationType.REMINDER ||
       type === NotificationType.REMINDER_24H ||
       type === NotificationType.REMINDER_1H
-        ? {
-            reminderMinutesBefore:
-              job.reminderMinutesBefore ??
-              (type === NotificationType.REMINDER_24H
-                ? 1440
-                : type === NotificationType.REMINDER_1H
-                  ? 60
-                  : undefined),
-          }
+        ? job.reminderMinutesBefore ??
+          (type === NotificationType.REMINDER_24H
+            ? 1440
+            : type === NotificationType.REMINDER_1H
+              ? 60
+              : undefined)
         : undefined;
+    const reminderOpts = reminderMinutesBefore
+      ? { reminderMinutesBefore }
+      : undefined;
 
     const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
     const manageUrl = `${webUrl}/manage/${appt.manageToken}`;
@@ -100,8 +183,26 @@ export class NotificationSenderService {
       icsDownloadUrl,
       adminAppointmentUrl,
     };
+    const templateEvent = mapNotificationTypeToTemplateEvent(type);
+    const templateTokens = this.buildTemplateTokens(data, type, reminderMinutesBefore);
 
-    const customerMail = appointmentEmail(type, data, reminderOpts);
+    let customerMail = appointmentEmail(type, data, reminderOpts);
+    if (templateEvent) {
+      const activeCustomerEmailTemplate = await this.notificationTemplates.findActiveTemplate(
+        appt.organizationId,
+        'email',
+        'customer',
+        templateEvent,
+      );
+      if (activeCustomerEmailTemplate?.subject) {
+        customerMail = this.renderCustomEmail(
+          activeCustomerEmailTemplate.subject,
+          activeCustomerEmailTemplate.body,
+          templateTokens,
+        );
+      }
+    }
+
     await this.deliverEmail(
       appointmentId,
       logType,
@@ -112,7 +213,18 @@ export class NotificationSenderService {
 
     const customerPhone = appt.customer.phone?.trim();
     if (customerPhone) {
-      const waText = appointmentWhatsAppMessage(type, data, reminderOpts);
+      let waText = appointmentWhatsAppMessage(type, data, reminderOpts);
+      if (templateEvent) {
+        const activeCustomerWhatsappTemplate = await this.notificationTemplates.findActiveTemplate(
+          appt.organizationId,
+          'whatsapp',
+          'customer',
+          templateEvent,
+        );
+        if (activeCustomerWhatsappTemplate) {
+          waText = this.renderCustomText(activeCustomerWhatsappTemplate.body, templateTokens);
+        }
+      }
       await this.deliverWhatsApp(appointmentId, logType, customerPhone, waText);
     } else {
       this.logger.warn(`No customer phone for appointment ${appointmentId}; skipped WhatsApp`);
@@ -129,7 +241,22 @@ export class NotificationSenderService {
       return;
     }
 
-    const providerMail = providerAppointmentEmail(type, data, reminderOpts);
+    let providerMail = providerAppointmentEmail(type, data, reminderOpts);
+    if (templateEvent) {
+      const activeProviderEmailTemplate = await this.notificationTemplates.findActiveTemplate(
+        appt.organizationId,
+        'email',
+        'provider',
+        templateEvent,
+      );
+      if (activeProviderEmailTemplate?.subject) {
+        providerMail = this.renderCustomEmail(
+          activeProviderEmailTemplate.subject,
+          activeProviderEmailTemplate.body,
+          templateTokens,
+        );
+      }
+    }
     await this.deliverEmail(
       appointmentId,
       `${logType}:provider`,

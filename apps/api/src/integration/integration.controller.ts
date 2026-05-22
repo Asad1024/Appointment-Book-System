@@ -15,7 +15,10 @@ export class IntegrationController {
     @Query('product') product?: string,
     @Query('locationId') locationId?: string,
   ) {
-    return this.integration.getBookingContext(org || 'demo-company', product, locationId);
+    if (!org?.trim()) {
+      throw new BadRequestException('Query parameter "org" is required');
+    }
+    return this.integration.getBookingContext(org.trim(), product, locationId);
   }
 
   @Public()
@@ -27,7 +30,10 @@ export class IntegrationController {
     @Query('providerSlug') providerSlug?: string,
     @Query('serviceSlug') serviceSlug?: string,
   ) {
-    const orgSlug = org || 'demo-company';
+    if (!org?.trim()) {
+      throw new BadRequestException('Query parameter "org" is required');
+    }
+    const orgSlug = org.trim();
     if (providerSlug && serviceSlug) {
       return this.integration.getBookingEventBySlugs(orgSlug, providerSlug, serviceSlug);
     }

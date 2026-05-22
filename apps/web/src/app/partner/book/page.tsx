@@ -4,17 +4,19 @@ import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { BookingWizard } from '@/components/BookingWizard';
 import { parseBookingPrefill } from '@/lib/booking-prefill';
+import { resolveOrgSlug } from '@/lib/resolve-org-slug';
 import { Skeleton } from '@/components/ui/skeleton';
 
 /** Leads Reach partner picker — minimal chrome, lead details pre-filled from query string. */
 function PartnerBookContent() {
   const search = useSearchParams();
+  const org = resolveOrgSlug(search);
   const prefill = parseBookingPrefill(search);
 
   return (
     <BookingWizard
       params={{
-        org: search.get('org') ?? undefined,
+        org: org || undefined,
         product: search.get('product') ?? undefined,
         locationId: search.get('locationId') ?? search.get('location') ?? undefined,
         source: search.get('source') ?? 'partner',

@@ -40,6 +40,7 @@ import { BookingWizardLayout } from '@/components/booking/BookingWizardLayout';
 import { BookingSummaryPanel } from '@/components/booking/BookingSummaryPanel';
 import { BookingConfirmation } from '@/components/booking/BookingConfirmation';
 import { DateTimePicker } from '@/components/booking/DateTimePicker';
+import { OrgRequiredGate } from '@/components/booking/OrgRequiredGate';
 import { IntakeFieldsForm } from '@/components/booking/IntakeFieldsForm';
 import { PartnerBookingConfirmStep } from '@/components/booking/PartnerBookingConfirmStep';
 import { PartnerEventMeta } from '@/components/booking/PartnerEventMeta';
@@ -89,7 +90,10 @@ export type FilledBookingParams = {
 };
 
 export function FilledBooking({ params }: { params: FilledBookingParams }) {
-  const org = params.org ?? 'demo-company';
+  const org = params.org?.trim();
+  if (!org) {
+    return <OrgRequiredGate />;
+  }
   const [ctx, setCtx] = useState<BookingEventContext | null>(null);
   const [loadError, setLoadError] = useState('');
   const [slots, setSlots] = useState<Slot[]>([]);

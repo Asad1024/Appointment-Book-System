@@ -34,9 +34,18 @@ describe('booking concurrency', () => {
     if (!org) throw new Error('Run db:seed first');
 
     const customer = await prisma.customer.upsert({
-      where: { email: 'concurrency@test.com' },
+      where: {
+        organizationId_email: {
+          organizationId: org.id,
+          email: 'concurrency@test.com',
+        },
+      },
       update: {},
-      create: { name: 'Concurrency Test', email: 'concurrency@test.com' },
+      create: {
+        organizationId: org.id,
+        name: 'Concurrency Test',
+        email: 'concurrency@test.com',
+      },
     });
 
     const attempts = 50;

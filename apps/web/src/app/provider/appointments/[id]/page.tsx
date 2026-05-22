@@ -156,7 +156,7 @@ export default function ProviderAppointmentDetailPage() {
         className="mb-6 inline-flex items-center gap-1 text-sm text-text-secondary hover:text-brand-600"
       >
         <ArrowLeft className="h-4 w-4" />
-        My appointments
+        Dashboard
       </Link>
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">

@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   REMINDER_OFFSET_PRESETS,
+  isPlatformOrgSlug,
   parseReminderOffsetsJson,
 } from '@pkg/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
@@ -20,6 +21,12 @@ export class IntegrationService {
     });
 
     if (!org) throw new NotFoundException('Organization not found');
+    if (isPlatformOrgSlug(org.slug)) {
+      throw new NotFoundException('Organization not found');
+    }
+    if (!org.isActive) {
+      throw new ForbiddenException('This organization is not accepting bookings');
+    }
     if (org.locations.length === 0) throw new NotFoundException('No location configured');
 
     const locations = org.locations.map((loc) => ({

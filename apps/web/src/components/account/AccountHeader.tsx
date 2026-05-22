@@ -23,7 +23,7 @@ export function AccountHeader({ user, onUserUpdate }: AccountHeaderProps) {
 
   async function signOut() {
     await logout();
-    router.push('/login');
+    router.push('/customer/login');
   }
 
   return (

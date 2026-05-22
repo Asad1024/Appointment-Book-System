@@ -18,6 +18,18 @@ function ResetForm() {
   const search = useSearchParams();
   const router = useRouter();
   const token = search.get('token') ?? '';
+  const roleHint = (search.get('role') ?? '').trim().toLowerCase();
+  const orgHint = (search.get('org') ?? '').trim();
+  const signInHref =
+    roleHint === 'customer'
+      ? orgHint
+        ? `/customer/login?org=${encodeURIComponent(orgHint)}`
+        : '/customer/login'
+      : roleHint === 'provider'
+        ? '/staff/login'
+        : roleHint === 'super_admin'
+          ? '/platform/login'
+          : '/login';
 
   const {
     register,
@@ -36,7 +48,7 @@ function ResetForm() {
         body: JSON.stringify({ token, newPassword: values.password }),
       });
       toast.success('Password updated. Sign in with your new password.');
-      router.push('/login');
+      router.push(signInHref);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Reset failed');
     }
@@ -68,6 +80,11 @@ function ResetForm() {
       <Button type="submit" className="w-full" loading={isSubmitting}>
         Update password
       </Button>
+      <p className="text-center text-sm">
+        <Link href={signInHref} className="text-brand-600 hover:underline">
+          Sign in
+        </Link>
+      </p>
     </form>
   );
 }
@@ -75,14 +92,9 @@ function ResetForm() {
 export default function ResetPasswordPage() {
   return (
     <AuthShell title="Choose a new password" subtitle="Enter your new password below">
-      <Suspense fallback={<p className="text-sm text-text-muted">Loading…</p>}>
+      <Suspense fallback={<p className="text-sm text-text-muted">Loading...</p>}>
         <ResetForm />
       </Suspense>
-      <p className="mt-4 text-center text-sm">
-        <Link href="/login" className="text-brand-600 hover:underline">
-          Sign in
-        </Link>
-      </p>
     </AuthShell>
   );
 }

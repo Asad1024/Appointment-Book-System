@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-/** Legacy route — single sign-in at /login */
+/** Legacy route - workspace sign-in now lives on /login. */
 export default function AdminLoginRedirectPage() {
-  redirect('/login');
+  redirect('/login?next=%2Fadmin%2Fdashboard');
 }

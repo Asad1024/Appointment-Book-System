@@ -4,6 +4,7 @@ import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { FilledBooking } from '@/components/booking/FilledBooking';
+import { OrgRequiredGate } from '@/components/booking/OrgRequiredGate';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { CustomerLayout } from '@/components/shells/CustomerLayout';
 import { PageShell } from '@/components/layout/PageShell';
@@ -13,12 +14,18 @@ import { Card, CardBody } from '@/components/ui/card';
 import { useAuthUser } from '@/lib/useAuthUser';
 import { parseBookingPrefill } from '@/lib/booking-prefill';
 import { isPartnerFlowFromSearch } from '@/lib/partner-flow';
+import { resolveOrgSlug } from '@/lib/resolve-org-slug';
 
 function EventBookContent({ partner }: { partner: boolean }) {
   const search = useSearchParams();
+  const org = resolveOrgSlug(search);
   const serviceId = search.get('serviceId') ?? '';
   const providerId = search.get('providerId') ?? '';
   const prefill = parseBookingPrefill(search);
+
+  if (!org) {
+    return <OrgRequiredGate />;
+  }
 
   if (!serviceId || !providerId) {
     return (
@@ -43,7 +50,7 @@ function EventBookContent({ partner }: { partner: boolean }) {
   return (
     <FilledBooking
       params={{
-        org: search.get('org') ?? undefined,
+        org,
         serviceId,
         providerId,
         source: search.get('source') ?? undefined,

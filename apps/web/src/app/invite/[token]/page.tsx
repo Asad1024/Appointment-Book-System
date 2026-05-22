@@ -22,6 +22,8 @@ type InvitePreview = {
   role: string;
   organizationName: string;
   expiresAt: string;
+  suggestedName?: string | null;
+  nameLocked?: boolean;
 };
 
 export default function AcceptInvitePage() {
@@ -33,6 +35,7 @@ export default function AcceptInvitePage() {
   const {
     register,
     handleSubmit,
+    setValue,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<InviteAcceptForm>({ resolver: zodResolver(inviteAcceptSchema) });
@@ -46,13 +49,22 @@ export default function AcceptInvitePage() {
       .catch((e) => setLoadError(e.message));
   }, [token]);
 
+  useEffect(() => {
+    if (!preview?.suggestedName) return;
+    setValue('name', preview.suggestedName, { shouldValidate: true });
+  }, [preview?.suggestedName, setValue]);
+
   async function onSubmit(values: InviteAcceptForm) {
     if (!token) return;
     try {
       await ensureCsrf();
       await api(`/team/invites/token/${token}/accept`, {
         method: 'POST',
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          name: values.name,
+          password: values.password,
+          confirmPassword: values.confirmPassword,
+        }),
       });
       toast.success('Welcome to the team!');
       router.push('/admin/dashboard');
@@ -76,21 +88,25 @@ export default function AcceptInvitePage() {
       </div>
     );
   }
+  const roleLabel = preview.role
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 
   return (
     <AuthShell
       title={`Join ${preview.organizationName}`}
       subtitle="Set up your staff account to access the dashboard"
+      headerRight={<Badge variant="brand">{roleLabel}</Badge>}
     >
-      <div className="mb-6 flex flex-wrap items-center gap-2">
-        <Badge variant="brand">{preview.role.replace(/_/g, ' ')}</Badge>
-        <span className="text-sm text-text-secondary">{preview.email}</span>
-      </div>
       <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
         <div>
-          <Label htmlFor="invite-name">Your name</Label>
+          <Label htmlFor="invite-name">Name</Label>
           <Input id="invite-name" autoComplete="name" {...register('name')} />
           {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name.message}</p>}
+        </div>
+        <div>
+          <Label htmlFor="invite-email">Email</Label>
+          <Input id="invite-email" value={preview.email} readOnly />
         </div>
         <div>
           <PasswordField
@@ -102,6 +118,13 @@ export default function AcceptInvitePage() {
           />
           <PasswordStrength password={password} />
         </div>
+        <PasswordField
+          id="invite-confirm-password"
+          label="Confirm password"
+          autoComplete="new-password"
+          {...register('confirmPassword')}
+          error={errors.confirmPassword?.message}
+        />
         <Button type="submit" className="w-full" loading={isSubmitting}>
           Join team
         </Button>

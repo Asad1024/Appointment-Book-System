@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ChevronDown, LogOut, Menu, X } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
@@ -12,16 +12,28 @@ import type { AuthUser } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { pageContainer } from '@/lib/layout';
+import { resolveOrgContext } from '@/lib/resolve-org-slug';
 
 const PUBLIC_NAV = [
   { href: '/', label: 'Home' },
-  { href: '/book', label: 'Book' },
 ] as const;
+
+function withOptionalOrg(path: string, orgFromQuery: string): string {
+  if (!orgFromQuery) return path;
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}org=${encodeURIComponent(orgFromQuery)}`;
+}
 
 const HIDE_PATHS = [
   '/embed',
   '/admin',
+  '/platform',
   '/login',
+  '/staff/login',
+  '/customer/login',
+  '/admin/login',
+  '/provider/login',
+  '/platform/login',
   '/register',
   '/forgot-password',
   '/reset-password',
@@ -34,23 +46,36 @@ function MainNavLinks({
   pathname,
   user,
   isStaff,
+  isTenantCustomerContext,
+  homeHref,
+  customerLoginHref,
+  customerRegisterHref,
   mobile,
   onNavigate,
 }: {
   pathname: string | null;
   user: AuthUser | null;
   isStaff: boolean;
+  isTenantCustomerContext: boolean;
+  homeHref: string;
+  customerLoginHref: string;
+  customerRegisterHref: string;
   mobile?: boolean;
   onNavigate?: () => void;
 }) {
-  const links: { href: string; label: string }[] = [...PUBLIC_NAV];
+  const links: { href: string; label: string }[] = [{ href: homeHref, label: PUBLIC_NAV[0].label }];
+  const staffHref = user?.role === 'provider' ? '/provider/dashboard' : '/admin/dashboard';
+  const staffLabel = 'Staff portal';
   if (user && isStaff) {
-    links.push({ href: '/admin/dashboard', label: 'Staff portal' });
+    links.push({ href: staffHref, label: staffLabel });
   } else if (user) {
     links.push({ href: '/account', label: 'My appointments' });
+  } else if (isTenantCustomerContext) {
+    links.push({ href: customerLoginHref, label: 'Sign in' });
+    links.push({ href: customerRegisterHref, label: 'Create account' });
   } else {
     links.push({ href: '/login', label: 'Sign in' });
-    links.push({ href: '/register', label: 'Register' });
+    links.push({ href: '/signup', label: 'Start free' });
   }
 
   return (
@@ -62,7 +87,8 @@ function MainNavLinks({
       aria-label="Main"
     >
       {links.map(({ href, label }) => {
-        const active = pathname === href || (href !== '/' && pathname?.startsWith(href));
+        const hrefPath = href.split('?')[0] ?? href;
+        const active = pathname === hrefPath || (hrefPath !== '/' && pathname?.startsWith(hrefPath));
         return (
           <Link
             key={href}
@@ -88,6 +114,8 @@ function AuthNav({
   user,
   loading,
   isStaff,
+  isTenantCustomerContext,
+  customerBookHref,
   onSignOut,
   mobile,
   onNavigate,
@@ -95,6 +123,8 @@ function AuthNav({
   user: AuthUser | null;
   loading: boolean;
   isStaff: boolean;
+  isTenantCustomerContext: boolean;
+  customerBookHref: string;
   onSignOut: () => Promise<void>;
   mobile?: boolean;
   onNavigate?: () => void;
@@ -125,15 +155,20 @@ function AuthNav({
 
   if (!user) {
     return (
-      <Link href="/book" className={mobile ? 'w-full' : undefined} onClick={close}>
+      <Link
+        href={isTenantCustomerContext ? customerBookHref : '/login'}
+        className={mobile ? 'w-full' : undefined}
+        onClick={close}
+      >
         <Button className={mobile ? 'w-full' : undefined} size="sm">
-          Book appointment
+          {isTenantCustomerContext ? 'Book appointment' : 'Workspace sign in'}
         </Button>
       </Link>
     );
   }
 
-  const accountHref = isStaff ? '/admin/dashboard' : '/account';
+  const accountHref =
+    user.role === 'provider' ? '/provider/dashboard' : isStaff ? '/admin/dashboard' : '/account';
   const accountLabel = isStaff ? 'Staff dashboard' : 'My appointments';
 
   if (mobile) {
@@ -214,21 +249,56 @@ function AuthNav({
 
 export function SiteHeader() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, loading, signOut, isStaff } = useAuthUser();
+  const orgContext = resolveOrgContext(searchParams);
+  const tenantOrgSlug = orgContext.slug;
+  const orgFromQuery = orgContext.source === 'query' ? tenantOrgSlug : '';
+  const isTenantCustomerContext = Boolean(tenantOrgSlug);
+  const isHostTenantContext = orgContext.source === 'host';
+  const homeHref = isHostTenantContext
+    ? '/'
+    : isTenantCustomerContext
+      ? withOptionalOrg('/book', orgFromQuery)
+      : '/';
+  const customerLoginHref = isHostTenantContext
+    ? '/customer/login'
+    : withOptionalOrg('/customer/login', orgFromQuery);
+  const customerBookHref = isHostTenantContext
+    ? '/book'
+    : withOptionalOrg('/book', orgFromQuery);
+  const customerRegisterHref = isHostTenantContext
+    ? '/register'
+    : withOptionalOrg('/register', orgFromQuery);
   const isCustomerBookRoute = pathname?.startsWith('/book') && !!user && !isStaff;
 
   if (HIDE_PATHS.some((p) => pathname?.startsWith(p)) || isCustomerBookRoute) return null;
 
-  const authProps = { user, loading, isStaff, onSignOut: signOut };
+  const authProps = {
+    user,
+    loading,
+    isStaff,
+    isTenantCustomerContext,
+    customerBookHref,
+    onSignOut: signOut,
+  };
   const closeMobile = () => setMobileOpen(false);
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/80 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
       <div className={cn(pageContainer, 'relative flex items-center justify-between gap-4 py-3')}>
-        <Logo href="/" className="relative z-10 shrink-0" />
+        <Logo href={homeHref} className="relative z-10 shrink-0" />
         <div className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 md:block">
-          <MainNavLinks pathname={pathname} user={user} isStaff={isStaff} />
+          <MainNavLinks
+            pathname={pathname}
+            user={user}
+            isStaff={isStaff}
+            isTenantCustomerContext={isTenantCustomerContext}
+            homeHref={homeHref}
+            customerLoginHref={customerLoginHref}
+            customerRegisterHref={customerRegisterHref}
+          />
         </div>
         <div className="relative z-10 flex shrink-0 items-center gap-2">
           <ThemeToggle />
@@ -251,6 +321,10 @@ export function SiteHeader() {
             pathname={pathname}
             user={user}
             isStaff={isStaff}
+            isTenantCustomerContext={isTenantCustomerContext}
+            homeHref={homeHref}
+            customerLoginHref={customerLoginHref}
+            customerRegisterHref={customerRegisterHref}
             mobile
             onNavigate={closeMobile}
           />

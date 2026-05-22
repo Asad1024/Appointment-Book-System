@@ -211,6 +211,14 @@ export class CatalogController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...MANAGER_ROLES)
+  @Delete('providers/:id/permanent')
+  deleteProviderPermanently(@Param('id') id: string) {
+    return this.catalog.hardDeleteProvider(id);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...MANAGER_ROLES)
   @Post('providers/:id/restore')
   restoreProvider(@Param('id') id: string) {
     return this.catalog.restoreProvider(id);
@@ -218,10 +226,28 @@ export class CatalogController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...MANAGER_ROLES)
+  @Post('providers/:id/resend-invite')
+  resendProviderInvite(
+    @Req() req: { user: { id: string; orgId: string } },
+    @Param('id') id: string,
+    @Body() body: { email?: string | null },
+  ) {
+    return this.catalog.resendProviderInvite(req.user.orgId, req.user.id, id, body);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN, UserRole.LOCATION_MANAGER)
   @Post('providers')
-  createProvider(@Body() body: Record<string, unknown>) {
-    return this.catalog.createProvider(body as Parameters<CatalogService['createProvider']>[0]);
+  createProvider(
+    @Req() req: { user: { id: string } },
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.catalog.createProvider(
+      body as Parameters<CatalogService['createProvider']>[0],
+      { invitedById: req.user.id },
+    );
   }
 
   @ApiBearerAuth()

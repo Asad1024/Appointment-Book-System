@@ -1,5 +1,5 @@
 import { UserRole } from '@pkg/shared-types';
-import { IsEmail, IsEnum, IsOptional, IsUUID } from 'class-validator';
+import { IsEmail, IsEnum } from 'class-validator';
 
 export class CreateInviteDto {
   @IsEmail()
@@ -7,8 +7,4 @@ export class CreateInviteDto {
 
   @IsEnum(UserRole)
   role!: UserRole;
-
-  @IsOptional()
-  @IsUUID()
-  providerId?: string;
 }

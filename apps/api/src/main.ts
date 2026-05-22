@@ -32,7 +32,10 @@ async function bootstrap() {
       }
       if (
         isDev &&
-        /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)
+        (
+          /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin) ||
+          /^https?:\/\/([a-z0-9-]+\.)*lvh\.me(:\d+)?$/i.test(origin)
+        )
       ) {
         callback(null, true);
         return;

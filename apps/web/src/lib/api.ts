@@ -142,6 +142,10 @@ export type AuthUser = {
   role: string;
   emailVerified: boolean;
   providerId?: string | null;
+  organizationId?: string;
+  organizationSlug?: string;
+  organizationName?: string;
+  organizations?: { id: string; slug: string; name: string }[];
   reminderPreferences?: ReminderPreferences;
 };
 

@@ -15,7 +15,7 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api, apiAuth } from '@/lib/api';
+import { apiAuth } from '@/lib/api';
 import { useAdminLocation } from '@/lib/admin-location-context';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { SlideOver } from '@/components/admin/SlideOver';
@@ -44,7 +44,6 @@ import { cn } from '@/lib/utils';
 const STAFF_ROLES = [
   { value: 'org_admin', label: 'Admin - full access' },
   { value: 'location_manager', label: 'Manager - schedules & reports' },
-  { value: 'provider', label: 'Provider - own appointments only' },
 ];
 
 const ROLE_META: Record<string, { label: string; badgeClass: string }> = {
@@ -58,11 +57,6 @@ const ROLE_META: Record<string, { label: string; badgeClass: string }> = {
     badgeClass:
       'border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-200',
   },
-  provider: {
-    label: 'Provider',
-    badgeClass:
-      'border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200',
-  },
 };
 
 type Member = {
@@ -71,19 +65,15 @@ type Member = {
   name: string;
   role: string;
   isActive: boolean;
-  provider?: { id: string; name: string } | null;
 };
 
 type Invite = {
   id: string;
   email: string;
   role: string;
-  providerId?: string | null;
   expiresAt: string;
   invitedBy: { name: string };
 };
-
-type Provider = { id: string; name: string };
 type InviteResult = { acceptUrl: string; email: string; role: string };
 
 function formatRoleLabel(role: string) {
@@ -105,12 +95,10 @@ export default function AdminTeamPage() {
   const { locationId } = useAdminLocation();
   const [members, setMembers] = useState<Member[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
-  const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [panelOpen, setPanelOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('location_manager');
-  const [providerId, setProviderId] = useState('');
   const [lastLink, setLastLink] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [revokeId, setRevokeId] = useState<string | null>(null);
@@ -125,18 +113,12 @@ export default function AdminTeamPage() {
     if (!locationId) return;
     setLoading(true);
     try {
-      const [m, i, p] = await Promise.all([
+      const [m, i] = await Promise.all([
         apiAuth<Member[]>('/team/members'),
         apiAuth<Invite[]>('/team/invites'),
-        api<Provider[]>(`/catalog/locations/${locationId}/providers`),
       ]);
       setMembers(m);
       setInvites(i);
-      setProviders(p);
-      setProviderId((prev) => {
-        if (prev && p.some((x) => x.id === prev)) return prev;
-        return p[0]?.id ?? '';
-      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to load team data');
     } finally {
@@ -151,7 +133,6 @@ export default function AdminTeamPage() {
     }
     setMembers([]);
     setInvites([]);
-    setProviders([]);
     setLoading(false);
   }, [locationId, loadAll]);
 
@@ -161,10 +142,6 @@ export default function AdminTeamPage() {
     () => members.filter((m) => m.isActive).length,
     [members],
   );
-  const adminCount = useMemo(
-    () => members.filter((m) => m.role === 'org_admin').length,
-    [members],
-  );
 
   const filteredMembers = useMemo(() => {
     const q = searchValue.trim().toLowerCase();
@@ -172,7 +149,7 @@ export default function AdminTeamPage() {
       const matchesSearch =
         q.length === 0
           ? true
-          : [member.name, member.email, member.provider?.name ?? '']
+          : [member.name, member.email]
               .join(' ')
               .toLowerCase()
               .includes(q);
@@ -218,15 +195,10 @@ export default function AdminTeamPage() {
 
   async function sendInvite(e: React.FormEvent) {
     e.preventDefault();
-    if (inviteRole === 'provider' && !providerId) {
-      toast.error('Please select a provider profile');
-      return;
-    }
     setSubmitting(true);
     setLastLink('');
     try {
       const body: Record<string, string> = { email: inviteEmail, role: inviteRole };
-      if (inviteRole === 'provider') body.providerId = providerId;
       const result = await apiAuth<InviteResult>('/team/invites', {
         method: 'POST',
         body: JSON.stringify(body),
@@ -399,9 +371,6 @@ export default function AdminTeamPage() {
             <Badge className={cn('font-semibold', roleBadgeClass(m.role))}>
               {formatRoleLabel(m.role)}
             </Badge>
-            {m.provider?.name ? (
-              <span className="text-xs text-text-muted">· {m.provider.name}</span>
-            ) : null}
           </div>
         </div>
       );
@@ -425,9 +394,6 @@ export default function AdminTeamPage() {
           <Badge className={cn('font-semibold', roleBadgeClass(m.role))}>
             {formatRoleLabel(m.role)}
           </Badge>
-        </td>
-        <td className="px-4 py-3 text-text-secondary">
-          {m.provider?.name ?? <span className="text-text-muted">—</span>}
         </td>
         <td className="px-4 py-3">
           <CatalogStatusBadge isActive={m.isActive} />
@@ -505,12 +471,11 @@ export default function AdminTeamPage() {
           <table className="w-full table-fixed text-sm">
             <thead className="bg-slate-50/80 dark:bg-slate-900/70">
               <tr className="text-left text-xs font-semibold uppercase tracking-wide text-text-secondary">
-                <th className="w-[22%] px-4 py-3">Name</th>
-                <th className="w-[24%] px-4 py-3">Email</th>
-                <th className="w-[14%] px-4 py-3">Role</th>
-                <th className="w-[20%] px-4 py-3">Provider profile</th>
-                <th className="w-[12%] px-4 py-3">Status</th>
-                <th className="w-[8%] px-4 py-3 text-right">Actions</th>
+                <th className="w-[28%] px-4 py-3">Name</th>
+                <th className="w-[30%] px-4 py-3">Email</th>
+                <th className="w-[18%] px-4 py-3">Role</th>
+                <th className="w-[14%] px-4 py-3">Status</th>
+                <th className="w-[10%] px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -550,7 +515,6 @@ export default function AdminTeamPage() {
     { value: 'all', label: 'All roles' },
     { value: 'org_admin', label: 'Admin' },
     { value: 'location_manager', label: 'Manager' },
-    { value: 'provider', label: 'Provider' },
   ];
 
   const membersSummary = `${filteredMembers.length} member${filteredMembers.length === 1 ? '' : 's'}`;
@@ -662,7 +626,7 @@ export default function AdminTeamPage() {
               <ResourceListToolbar
                 searchValue={searchValue}
                 onSearchValueChange={setSearchValue}
-                searchPlaceholder="Search by name, email, or provider profile..."
+                searchPlaceholder="Search by name or email..."
                 showArchivedToggle={false}
                 summary={membersSummary}
               />
@@ -788,32 +752,12 @@ export default function AdminTeamPage() {
               </SelectContent>
             </Select>
           </div>
-          {inviteRole === 'provider' && (
-            <div>
-              <Label>Provider profile</Label>
-              <Select value={providerId} onValueChange={setProviderId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select provider" />
-                </SelectTrigger>
-                <SelectContent>
-                  {providers.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="mt-1 text-xs text-text-muted">
-                Links this login to an existing profile from the Providers page.
-              </p>
-            </div>
-          )}
           <div className="flex gap-2 pt-2">
             <Button
               type="submit"
               className="flex-1"
               loading={submitting}
-              disabled={!inviteEmail.trim() || (inviteRole === 'provider' && !providerId)}
+              disabled={!inviteEmail.trim()}
             >
               Generate invite link
             </Button>

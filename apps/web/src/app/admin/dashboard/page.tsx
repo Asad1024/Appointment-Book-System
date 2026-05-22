@@ -16,7 +16,6 @@ import {
   Filter,
   List,
   ListOrdered,
-  Trash2,
   XCircle,
 } from 'lucide-react';
 import {
@@ -24,8 +23,7 @@ import {
   type CalendarAppointment,
 } from '@/components/calendar/AppointmentCalendar';
 import { toast } from 'sonner';
-import { apiAuth, ensureCsrf } from '@/lib/api';
-import { useStaffSession } from '@/lib/useStaffSession';
+import { apiAuth } from '@/lib/api';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { AnimatedCounter } from '@/components/admin/AnimatedCounter';
 import { EmptyState } from '@/components/admin/EmptyState';
@@ -43,14 +41,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useRealtimeEvents } from '@/lib/useRealtimeEvents';
 import { useAdminLocation } from '@/lib/admin-location-context';
@@ -122,10 +112,7 @@ const statCards = [
 ] as const;
 
 export default function AdminDashboardPage() {
-  const { isOrgAdmin } = useStaffSession({ redirectToLogin: false });
   const { locationId, location } = useAdminLocation();
-  const [clearOpen, setClearOpen] = useState(false);
-  const [clearing, setClearing] = useState(false);
   const [dashboardView, setDashboardView] = useState<DashboardView>(() => {
     if (typeof window === 'undefined') return 'calendar';
     return (localStorage.getItem('admin_dashboard_view') as DashboardView) || 'calendar';
@@ -173,30 +160,6 @@ export default function AdminDashboardPage() {
   function setView(v: DashboardView) {
     setDashboardView(v);
     localStorage.setItem('admin_dashboard_view', v);
-  }
-
-  async function handleClearAllAppointments() {
-    setClearing(true);
-    try {
-      await ensureCsrf();
-      const q = locationId ? `?locationId=${encodeURIComponent(locationId)}` : '';
-      const result = await apiAuth<{ deletedAppointments: number; deletedWaitlist: number }>(
-        `/appointments/admin/clear-all${q}`,
-        { method: 'DELETE' },
-      );
-      toast.success(
-        `Removed ${result.deletedAppointments} appointment${result.deletedAppointments === 1 ? '' : 's'} and ${result.deletedWaitlist} waitlist entr${result.deletedWaitlist === 1 ? 'y' : 'ies'}.`,
-      );
-      setClearOpen(false);
-      setAppointments([]);
-      setWaitlist([]);
-      void loadAppointments();
-      void loadWaitlist();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to clear appointments');
-    } finally {
-      setClearing(false);
-    }
   }
 
   const loadWaitlist = useCallback(async () => {
@@ -293,18 +256,6 @@ export default function AdminDashboardPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {isOrgAdmin && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
-                onClick={() => setClearOpen(true)}
-              >
-                <Trash2 className="mr-1.5 h-4 w-4" />
-                Clear all appointments
-              </Button>
-            )}
             <span className="mr-1 hidden text-xs font-medium text-text-muted sm:inline">View</span>
             <div className="inline-flex rounded-xl border border-brand-200 bg-brand-50 p-1 shadow-sm dark:border-brand-800/60 dark:bg-brand-950/35">
               <Button
@@ -648,34 +599,6 @@ export default function AdminDashboardPage() {
         </TabsContent>
       </Tabs>
       </div>
-
-      <Dialog open={clearOpen} onOpenChange={setClearOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Clear all appointments?</DialogTitle>
-            <DialogDescription>
-              This permanently deletes{' '}
-              {location
-                ? `every appointment and waitlist entry for ${location.name}`
-                : 'every appointment and waitlist entry in your organization'}
-              . Providers, services, and availability are kept. This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setClearOpen(false)} disabled={clearing}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={clearing}
-              onClick={() => void handleClearAllAppointments()}
-            >
-              {clearing ? 'Clearing…' : 'Clear all'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </PageTransition>
   );
 }

@@ -2,6 +2,7 @@
 
 import type { ComponentType } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
   ArrowRight,
@@ -23,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { PLATFORM } from '@/lib/brand';
 import { cn } from '@/lib/cn';
+import { resolveOrgContext } from '@/lib/resolve-org-slug';
 
 const statCards = [
   { label: 'avg. booking completion', value: '2m 14s' },
@@ -99,6 +101,50 @@ const executionTrack = [
   {
     title: 'Improve every week',
     text: 'Use trend reporting to reduce no-shows, improve utilization, and protect team capacity.',
+  },
+];
+
+const coreCapabilities: {
+  title: string;
+  text: string;
+  icon: ComponentType<{ className?: string }>;
+  bullets: string[];
+}[] = [
+  {
+    title: 'Omnichannel booking capture',
+    text: 'Collect demand from your website, campaigns, and partner surfaces into one scheduling flow.',
+    icon: Globe2,
+    bullets: ['Website and embedded booking', 'Consistent service routing'],
+  },
+  {
+    title: 'Reminder automation',
+    text: 'Send confirmations and reminders from one place with clear delivery visibility.',
+    icon: MessageSquareShare,
+    bullets: ['Email and WhatsApp support', 'Fewer no-shows'],
+  },
+  {
+    title: 'Capacity optimization',
+    text: 'Balance provider load and detect bottlenecks before they affect customer experience.',
+    icon: LineChart,
+    bullets: ['Utilization visibility', 'Actionable trend insights'],
+  },
+  {
+    title: 'Role and access controls',
+    text: 'Protect data with permission-aware surfaces for administrators, staff, and customers.',
+    icon: Shield,
+    bullets: ['Scoped permissions', 'Audit-friendly actions'],
+  },
+  {
+    title: 'Multi-location operations',
+    text: 'Run one operating model across locations while keeping local teams efficient.',
+    icon: Layers3,
+    bullets: ['Location-specific scheduling', 'Centralized governance'],
+  },
+  {
+    title: 'Workflow integrations',
+    text: 'Connect booking to your broader stack through APIs, links, and embedded journeys.',
+    icon: Workflow,
+    bullets: ['Integration-ready architecture', 'Fast implementation path'],
   },
 ];
 
@@ -283,7 +329,148 @@ function RoleCard({
   );
 }
 
+function CapabilityCard({
+  title,
+  text,
+  icon: Icon,
+  bullets,
+  index,
+}: {
+  title: string;
+  text: string;
+  icon: ComponentType<{ className?: string }>;
+  bullets: string[];
+  index: number;
+}) {
+  return (
+    <motion.article
+      initial={{ opacity: 0, y: 14 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-36px' }}
+      transition={{ duration: 0.35, delay: index * 0.05 }}
+      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card dark:border-slate-800 dark:bg-slate-900"
+    >
+      <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-brand-600 dark:border-slate-700 dark:bg-slate-800">
+        <Icon className="h-5 w-5" />
+      </div>
+      <h3 className="mt-3 font-display text-lg font-semibold text-text-primary">{title}</h3>
+      <p className="mt-2 text-sm leading-relaxed text-text-secondary">{text}</p>
+      <ul className="mt-4 space-y-2">
+        {bullets.map((bullet) => (
+          <li key={bullet} className="flex items-center gap-2 text-sm text-text-secondary">
+            <Check className="h-4 w-4 text-emerald-500" />
+            {bullet}
+          </li>
+        ))}
+      </ul>
+    </motion.article>
+  );
+}
+
+function orgNameFromSlug(slug: string): string {
+  return slug
+    .split('-')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function withOptionalOrg(path: string, orgFromQuery: string): string {
+  if (!orgFromQuery) return path;
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}org=${encodeURIComponent(orgFromQuery)}`;
+}
+
+function CustomerTenantLanding({
+  orgSlug,
+  orgFromQuery,
+}: {
+  orgSlug: string;
+  orgFromQuery: string;
+}) {
+  const orgName = orgNameFromSlug(orgSlug) || 'this business';
+  const bookHref = withOptionalOrg('/book', orgFromQuery);
+  const signInHref = withOptionalOrg('/customer/login', orgFromQuery);
+  const registerHref = withOptionalOrg('/register', orgFromQuery);
+
+  return (
+    <PageTransition>
+      <section className="relative overflow-hidden border-b border-slate-200/80 bg-gradient-to-b from-white via-slate-50 to-white dark:border-slate-800 dark:from-slate-950 dark:via-slate-900/60 dark:to-slate-950">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -left-24 top-8 h-72 w-72 rounded-full bg-brand-100/55 blur-3xl dark:bg-brand-900/25" />
+          <div className="absolute right-0 top-0 h-72 w-72 rounded-full bg-cyan-100/55 blur-3xl dark:bg-cyan-900/20" />
+        </div>
+
+        <div className="relative mx-auto max-w-6xl px-5 py-14 sm:px-6 sm:py-16">
+          <p className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.15em] text-brand-700 dark:border-brand-400/35 dark:bg-brand-500/15 dark:text-brand-100">
+            <CalendarCheck2 className="h-3.5 w-3.5" />
+            Customer booking portal
+          </p>
+          <h1 className="mt-5 font-display text-4xl font-bold tracking-tight text-text-primary sm:text-5xl">
+            Book your appointment with {orgName}
+          </h1>
+          <p className="mt-4 max-w-2xl text-base leading-relaxed text-text-secondary sm:text-lg">
+            Pick a service, choose a provider, and confirm your time in under two minutes.
+          </p>
+
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Link href={bookHref}>
+              <Button size="lg" className="min-w-[190px]">
+                Book appointment
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
+            <Link href={signInHref}>
+              <Button size="lg" variant="outline" className="min-w-[190px]">
+                Customer sign in
+              </Button>
+            </Link>
+            <Link href={registerHref}>
+              <Button size="lg" variant="outline" className="min-w-[190px]">
+                Create account
+              </Button>
+            </Link>
+          </div>
+
+          <div className="mt-10 grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card dark:border-slate-800 dark:bg-slate-900">
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              <h3 className="mt-3 font-display text-lg font-semibold text-text-primary">Real-time availability</h3>
+              <p className="mt-2 text-sm text-text-secondary">
+                Only available slots are shown, so your booking is instantly confirmed.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card dark:border-slate-800 dark:bg-slate-900">
+              <MessageSquareShare className="h-5 w-5 text-cyan-600" />
+              <h3 className="mt-3 font-display text-lg font-semibold text-text-primary">Clear reminders</h3>
+              <p className="mt-2 text-sm text-text-secondary">
+                Get confirmations and reminders so you never miss your session.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-card dark:border-slate-800 dark:bg-slate-900">
+              <TimerReset className="h-5 w-5 text-violet-600" />
+              <h3 className="mt-3 font-display text-lg font-semibold text-text-primary">Easy reschedule</h3>
+              <p className="mt-2 text-sm text-text-secondary">
+                Update or cancel from your manage link without calling support.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </PageTransition>
+  );
+}
+
 export default function HomePage() {
+  const searchParams = useSearchParams();
+  const orgContext = resolveOrgContext(searchParams);
+  const orgSlug = orgContext.slug;
+  const orgFromQuery = orgContext.source === 'query' ? orgSlug : '';
+
+  if (orgSlug) {
+    return <CustomerTenantLanding orgSlug={orgSlug} orgFromQuery={orgFromQuery} />;
+  }
+
   return (
     <PageTransition>
       <div className="overflow-hidden">
@@ -312,15 +499,15 @@ export default function HomePage() {
               </p>
 
               <div className="mt-8 flex flex-wrap gap-3">
-                <Link href="/book">
+                <Link href="/signup">
                   <Button size="lg" className="min-w-[180px]">
-                    Start booking
+                    Start your business
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                 </Link>
-                <Link href="/login?next=/admin/dashboard">
+                <Link href="/login">
                   <Button size="lg" variant="outline" className="min-w-[180px]">
-                    Enter staff portal
+                    Workspace sign in
                   </Button>
                 </Link>
               </div>
@@ -389,6 +576,33 @@ export default function HomePage() {
           </div>
         </section>
 
+        <section className="border-y border-slate-200/80 bg-gradient-to-b from-white to-slate-50/70 py-14 sm:py-16 dark:border-slate-800 dark:from-slate-950 dark:to-slate-900/45">
+          <div className="mx-auto max-w-6xl px-5 sm:px-6">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-text-muted">
+                Core capabilities
+              </p>
+              <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-text-primary">
+                Everything teams need to operate professionally
+              </h2>
+              <p className="mt-3 text-base text-text-secondary">
+                A complete scheduling foundation across capture, coordination, delivery, and reporting.
+              </p>
+            </motion.div>
+
+            <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {coreCapabilities.map((feature, index) => (
+                <CapabilityCard key={feature.title} index={index} {...feature} />
+              ))}
+            </div>
+          </div>
+        </section>
+
         <section className="border-y border-slate-200/80 bg-white py-14 dark:border-slate-800 dark:bg-slate-950">
           <div className="mx-auto max-w-6xl px-5 sm:px-6">
             <div className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr] lg:items-start">
@@ -413,17 +627,17 @@ export default function HomePage() {
           </div>
         </section>
 
-        <section className="bg-gradient-to-br from-slate-950 via-slate-900 to-brand-950 py-14 sm:py-16">
+        <section className="border-y border-slate-200/80 bg-gradient-to-br from-slate-100 via-white to-slate-50 py-14 sm:py-16 dark:border-slate-800 dark:from-slate-950 dark:via-slate-900 dark:to-brand-950">
           <div className="mx-auto max-w-6xl px-5 sm:px-6">
             <div className="grid gap-6 lg:grid-cols-[1fr_1fr] lg:items-center">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-300">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-300">
                   Execution track
                 </p>
-                <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-white">
+                <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
                   From first click to reliable delivery
                 </h2>
-                <p className="mt-3 text-base text-slate-300">
+                <p className="mt-3 text-base text-slate-600 dark:text-slate-300">
                   Design your booking engine once, then scale operations with confidence across locations.
                 </p>
               </div>
@@ -436,15 +650,15 @@ export default function HomePage() {
                     whileInView={{ opacity: 1, x: 0 }}
                     viewport={{ once: true }}
                     transition={{ duration: 0.35, delay: index * 0.06 }}
-                    className="rounded-2xl border border-white/12 bg-white/5 p-4 backdrop-blur-sm"
+                    className="rounded-2xl border border-slate-200 bg-white/85 p-4 backdrop-blur-sm dark:border-white/12 dark:bg-white/5"
                   >
                     <div className="flex items-start gap-3">
                       <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
                         0{index + 1}
                       </span>
                       <div>
-                        <h3 className="font-display text-lg font-semibold text-white">{item.title}</h3>
-                        <p className="mt-1 text-sm leading-relaxed text-slate-300">{item.text}</p>
+                        <h3 className="font-display text-lg font-semibold text-slate-900 dark:text-white">{item.title}</h3>
+                        <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{item.text}</p>
                       </div>
                     </div>
                   </motion.li>
@@ -472,11 +686,11 @@ export default function HomePage() {
               ].map(({ icon: Icon, title, text }) => (
                 <div
                   key={title}
-                  className="rounded-2xl border border-white/12 bg-black/20 p-4 backdrop-blur-sm"
+                  className="rounded-2xl border border-slate-200 bg-white/85 p-4 backdrop-blur-sm dark:border-white/12 dark:bg-black/20"
                 >
-                  <Icon className="h-5 w-5 text-cyan-300" />
-                  <h3 className="mt-3 font-display text-lg font-semibold text-white">{title}</h3>
-                  <p className="mt-1 text-sm text-slate-300">{text}</p>
+                  <Icon className="h-5 w-5 text-cyan-600 dark:text-cyan-300" />
+                  <h3 className="mt-3 font-display text-lg font-semibold text-slate-900 dark:text-white">{title}</h3>
+                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{text}</p>
                 </div>
               ))}
             </div>
@@ -497,12 +711,12 @@ export default function HomePage() {
                 Bring customer booking, team execution, and reporting into one elegant workflow with {PLATFORM.name}.
               </p>
               <div className="mt-7 flex flex-wrap justify-center gap-3">
-                <Link href="/book">
+                <Link href="/signup">
                   <Button size="lg" className="min-w-[190px]">
-                    Book your first session
+                    Start your workspace
                   </Button>
                 </Link>
-                <Link href="/login?next=/admin/dashboard">
+                <Link href="/login">
                   <Button size="lg" variant="outline" className="min-w-[190px]">
                     Open staff dashboard
                   </Button>

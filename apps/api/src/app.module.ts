@@ -24,6 +24,7 @@ import { BillingModule } from './billing/billing.module';
 import { PaymentsModule } from './payments/payments.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { PlatformModule } from './platform/platform.module';
 import { CsrfMiddleware } from './auth/csrf.middleware';
 import { GlobalHttpExceptionFilter } from './common/http-exception.filter';
 
@@ -74,6 +75,7 @@ const infrastructureImports = [
     PaymentsModule,
     RealtimeModule,
     ReviewsModule,
+    PlatformModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

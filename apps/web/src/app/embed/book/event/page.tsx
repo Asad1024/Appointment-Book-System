@@ -6,9 +6,11 @@ import Link from 'next/link';
 import { FilledBooking } from '@/components/booking/FilledBooking';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
+import { resolveOrgSlug } from '@/lib/resolve-org-slug';
 
 function EmbedEventContent() {
   const search = useSearchParams();
+  const org = resolveOrgSlug(search);
   const serviceId = search.get('serviceId') ?? '';
   const providerId = search.get('providerId') ?? '';
 
@@ -30,7 +32,7 @@ function EmbedEventContent() {
   return (
     <FilledBooking
       params={{
-        org: search.get('org') ?? undefined,
+        org: org || undefined,
         serviceId,
         providerId,
         source: search.get('source') ?? undefined,

@@ -361,7 +361,7 @@ export function DateTimePicker({
       {!hideTimezone && (
         <>
           <p className="text-sm text-slate-500 dark:text-slate-300">
-            Location time ({locationTimezone}) - Your time ({customerTimezone})
+            Location time ({formatTimezoneLabel(locationTimezone)}) - Your time ({formatTimezoneLabel(customerTimezone)})
           </p>
           <div>
             <Label htmlFor="customer-timezone">Your timezone</Label>
@@ -412,4 +412,3 @@ export function DateTimePicker({
     </div>
   );
 }
-

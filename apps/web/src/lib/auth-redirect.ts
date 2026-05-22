@@ -1,10 +1,16 @@
-import { STAFF_ROLES, UserRole, type UserRole as UserRoleType } from '@pkg/shared-types';
+import { UserRole } from '@pkg/shared-types';
 
 export function getPostLoginPath(role: string): string {
+  if (role === UserRole.SUPER_ADMIN) {
+    return '/platform/dashboard';
+  }
   if (role === UserRole.PROVIDER) {
     return '/provider/dashboard';
   }
-  if (STAFF_ROLES.includes(role as UserRoleType)) {
+  if (
+    role === UserRole.ORG_ADMIN ||
+    role === UserRole.LOCATION_MANAGER
+  ) {
     return '/admin/dashboard';
   }
   return '/account';
@@ -19,10 +25,10 @@ export function sanitizeNextPath(next: string | null | undefined): string | null
 export function resolvePostLoginPath(role: string, next: string | null | undefined): string {
   const safe = sanitizeNextPath(next);
   if (safe) {
+    if (role === UserRole.SUPER_ADMIN && safe.startsWith('/platform')) return safe;
     if (role === UserRole.PROVIDER && safe.startsWith('/provider')) return safe;
     if (
-      role !== UserRole.PROVIDER &&
-      STAFF_ROLES.includes(role as UserRoleType) &&
+      (role === UserRole.ORG_ADMIN || role === UserRole.LOCATION_MANAGER) &&
       safe.startsWith('/admin')
     ) {
       return safe;

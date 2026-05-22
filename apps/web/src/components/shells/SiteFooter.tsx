@@ -1,17 +1,24 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { Logo } from '@/components/Logo';
 import { PLATFORM } from '@/lib/brand';
 import { pageContainer } from '@/lib/layout';
 import { useAuthUser } from '@/lib/useAuthUser';
+import { resolveOrgContext } from '@/lib/resolve-org-slug';
 import { cn } from '@/lib/utils';
 
 const HIDE_PATHS = [
   '/embed',
   '/admin',
+  '/platform',
   '/login',
+  '/staff/login',
+  '/admin/login',
+  '/customer/login',
+  '/provider/login',
+  '/platform/login',
   '/register',
   '/forgot-password',
   '/reset-password',
@@ -20,22 +27,62 @@ const HIDE_PATHS = [
   '/account',
 ];
 
-const productLinks = [
-  { href: '/book', label: 'Book a demo' },
-  { href: '/login', label: 'Customer sign in' },
-  { href: '/register', label: 'Create account' },
+const defaultProductLinks = [
+  { href: '/signup', label: 'Start free' },
+  { href: '/login', label: 'Workspace sign in' },
+  { href: '/staff/login', label: 'Staff sign in' },
 ];
 
-const companyLinks = [
-  { href: '/login?next=/admin/dashboard', label: 'Staff portal' },
+const defaultCompanyLinks = [
+  { href: '/login', label: 'Administrator sign in' },
   { href: '#', label: 'Documentation' },
   { href: '#', label: 'Support' },
 ];
 
+function withOptionalOrg(path: string, orgFromQuery: string): string {
+  if (!orgFromQuery) return path;
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}org=${encodeURIComponent(orgFromQuery)}`;
+}
+
 export function SiteFooter() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user, isStaff } = useAuthUser();
+  const orgContext = resolveOrgContext(searchParams);
+  const tenantOrgSlug = orgContext.slug;
+  const orgFromQuery = orgContext.source === 'query' ? tenantOrgSlug : '';
+  const isTenantCustomerContext = Boolean(tenantOrgSlug);
+  const isHostTenantContext = orgContext.source === 'host';
+  const homeHref = isHostTenantContext
+    ? '/'
+    : isTenantCustomerContext
+      ? withOptionalOrg('/book', orgFromQuery)
+      : '/';
+  const customerBookHref = isHostTenantContext
+    ? '/book'
+    : withOptionalOrg('/book', orgFromQuery);
   const isCustomerBookRoute = pathname?.startsWith('/book') && !!user && !isStaff;
+  const productLinks = isTenantCustomerContext
+    ? [
+        { href: customerBookHref, label: 'Book now' },
+        {
+          href: isHostTenantContext ? '/customer/login' : withOptionalOrg('/customer/login', orgFromQuery),
+          label: 'Customer sign in',
+        },
+        {
+          href: isHostTenantContext ? '/register' : withOptionalOrg('/register', orgFromQuery),
+          label: 'Create account',
+        },
+      ]
+    : defaultProductLinks;
+  const companyLinks = isTenantCustomerContext
+    ? [
+        { href: '/staff/login', label: 'Staff sign in' },
+        { href: '#', label: 'Documentation' },
+        { href: '#', label: 'Support' },
+      ]
+    : defaultCompanyLinks;
 
   if (HIDE_PATHS.some((p) => pathname?.startsWith(p)) || isCustomerBookRoute) return null;
 
@@ -44,7 +91,7 @@ export function SiteFooter() {
       <div className={cn(pageContainer, 'py-12')}>
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <Logo href="/" />
+            <Logo href={homeHref} />
             <p className="mt-3 text-sm text-text-secondary">{PLATFORM.tagline}</p>
           </div>
           <div>

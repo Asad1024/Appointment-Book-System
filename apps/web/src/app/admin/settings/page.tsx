@@ -1,11 +1,12 @@
 'use client';
 
-import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Building2,
+  Copy,
   CreditCard,
   Globe2,
+  Trash2,
   MapPin,
   MoonStar,
   Save,
@@ -15,6 +16,7 @@ import {
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import { AdminLocationsCard, type OrgLocation } from '@/components/admin/AdminLocationsCard';
+import { NotificationTemplatesSettings } from '@/components/admin/NotificationTemplatesSettings';
 import { ReminderOffsetsAdminEditor } from '@/components/shared/ReminderPreferencesEditor';
 import {
   DEFAULT_REMINDER_OFFSETS_MINUTES,
@@ -34,7 +36,15 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { apiAuth, type AuthUser } from '@/lib/api';
+import { apiAuth, ensureCsrf, type AuthUser } from '@/lib/api';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   BOOKING_CURRENCIES,
   DEFAULT_BOOKING_CURRENCY,
@@ -43,14 +53,15 @@ import {
   type BookingCurrencyCode,
 } from '@/lib/currency';
 import { useAdminLocation } from '@/lib/admin-location-context';
-import { PLATFORM_LOGO_PATH } from '@/lib/brand';
 import { cn } from '@/lib/utils';
 import { TimezoneSelect } from '@/components/shared/TimezoneSelect';
+import { useStaffSession } from '@/lib/useStaffSession';
 
 type OrganizationSettings = {
   id: string;
   name: string;
   slug?: string;
+  bookingUrl?: string;
   bookingCurrency?: string | null;
   webhookUrl?: string | null;
   hasWebhookSecret?: boolean;
@@ -59,6 +70,7 @@ type OrganizationSettings = {
 
 type BrandingForm = {
   name: string;
+  slug: string;
 };
 
 type LocationForm = {
@@ -71,6 +83,69 @@ type LocationForm = {
   bookingWindowDays: number;
   reminderOffsetsMinutes: number[];
 };
+
+const LOCALHOST_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0']);
+
+function canUseTenantSubdomain(hostname: string): boolean {
+  if (LOCALHOST_HOSTS.has(hostname)) return false;
+  if (hostname.endsWith('.localhost')) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return false;
+  return hostname.includes('.');
+}
+
+function resolveRootHost(hostname: string): string {
+  const parts = hostname.split('.');
+  if (parts.length >= 3) {
+    return parts.slice(1).join('.');
+  }
+  return hostname;
+}
+
+function buildTenantBookingPreview(
+  slug: string,
+): { url: string; usesSubdomain: boolean } {
+  const fallback = process.env.NEXT_PUBLIC_WEB_URL ?? 'http://localhost:3002';
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin ? window.location.origin : fallback;
+  const safeSlug = slug.trim().toLowerCase() || 'your-org';
+
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    parsed = new URL('http://localhost:3002');
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const rootHost = resolveRootHost(host);
+  if (!canUseTenantSubdomain(host)) {
+    return {
+      url: `${parsed.origin}/book?org=${encodeURIComponent(safeSlug)}`,
+      usesSubdomain: false,
+    };
+  }
+
+  const tenantHost = `${safeSlug}.${rootHost}`;
+  const tenantOrigin = `${parsed.protocol}//${tenantHost}${parsed.port ? `:${parsed.port}` : ''}`;
+  return {
+    url: tenantOrigin,
+    usesSubdomain: true,
+  };
+}
+
+function normalizeBookingRootUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return trimmed;
+  try {
+    const parsed = new URL(trimmed);
+    if (canUseTenantSubdomain(parsed.hostname) && parsed.pathname === '/book' && !parsed.search) {
+      return parsed.origin;
+    }
+  } catch {
+    return trimmed;
+  }
+  return trimmed;
+}
 
 function parseLocationReminderOffsets(location: OrgLocation): number[] {
   if (Array.isArray(location.reminderOffsetsMinutes)) {
@@ -97,6 +172,7 @@ function mapLocationToForm(location: OrgLocation): LocationForm {
 
 export default function AdminSettingsPage() {
   const { locationId, refresh } = useAdminLocation();
+  const { isOrgAdmin } = useStaffSession({ redirectToLogin: false });
   const { theme, resolvedTheme, setTheme } = useTheme();
   const [themeMounted, setThemeMounted] = useState(false);
 
@@ -104,6 +180,7 @@ export default function AdminSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [branding, setBranding] = useState<BrandingForm>({
     name: '',
+    slug: '',
   });
   const [bookingCurrency, setBookingCurrency] = useState<BookingCurrencyCode>(
     DEFAULT_BOOKING_CURRENCY,
@@ -123,6 +200,8 @@ export default function AdminSettingsPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingCurrency, setSavingCurrency] = useState(false);
   const [savingLocation, setSavingLocation] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [profile, setProfile] = useState({
     name: '',
     email: '',
@@ -140,9 +219,19 @@ export default function AdminSettingsPage() {
     setOrg(nextOrg);
     setBranding({
       name: nextOrg.name ?? '',
+      slug: nextOrg.slug ?? '',
     });
     setBookingCurrency(normalizeBookingCurrency(nextOrg.bookingCurrency));
   }, []);
+
+  const bookingPreview = useMemo(
+    () => buildTenantBookingPreview(branding.slug),
+    [branding.slug],
+  );
+  const customerBookingUrl = useMemo(
+    () => normalizeBookingRootUrl(org?.bookingUrl?.trim() || bookingPreview.url),
+    [org?.bookingUrl, bookingPreview.url],
+  );
 
   const loadOrganization = useCallback(
     async (withSpinner = true) => {
@@ -182,8 +271,22 @@ export default function AdminSettingsPage() {
 
   async function saveBranding(e: React.FormEvent) {
     e.preventDefault();
-    if (!branding.name.trim()) {
+    const trimmedName = branding.name.trim();
+    const trimmedSlug = branding.slug.trim().toLowerCase();
+    if (!trimmedName) {
       toast.error('Organization name is required');
+      return;
+    }
+    if (!trimmedSlug) {
+      toast.error('Subdomain is required');
+      return;
+    }
+    if (trimmedSlug.length < 3 || trimmedSlug.length > 63) {
+      toast.error('Subdomain must be 3 to 63 characters');
+      return;
+    }
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmedSlug)) {
+      toast.error('Subdomain can only include lowercase letters, numbers, and hyphens');
       return;
     }
 
@@ -192,7 +295,8 @@ export default function AdminSettingsPage() {
       await apiAuth('/settings/organization', {
         method: 'PATCH',
         body: JSON.stringify({
-          name: branding.name.trim(),
+          name: trimmedName,
+          slug: trimmedSlug,
         }),
       });
       await loadOrganization(false);
@@ -331,6 +435,62 @@ export default function AdminSettingsPage() {
     }
   }
 
+  async function handleClearAllAppointments() {
+    setClearing(true);
+    try {
+      await ensureCsrf();
+      const q = locationId ? `?locationId=${encodeURIComponent(locationId)}` : '';
+      const result = await apiAuth<{ deletedAppointments: number; deletedWaitlist: number }>(
+        `/appointments/admin/clear-all${q}`,
+        { method: 'DELETE' },
+      );
+      toast.success(
+        `Removed ${result.deletedAppointments} appointment${result.deletedAppointments === 1 ? '' : 's'} and ${result.deletedWaitlist} waitlist entr${result.deletedWaitlist === 1 ? 'y' : 'ies'}.`,
+      );
+      setClearOpen(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to clear appointments');
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  async function copyToClipboard(value: string, successMessage: string) {
+    const fallbackCopy = () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const copied = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return copied;
+    };
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        toast.success(successMessage);
+        return;
+      }
+    } catch {
+      // Fall back for insecure contexts (e.g., non-localhost HTTP dev hosts).
+    }
+
+    try {
+      if (fallbackCopy()) {
+        toast.success(successMessage);
+        return;
+      }
+      throw new Error('copy failed');
+    } catch {
+      toast.error('Could not copy URL');
+    }
+  }
+
   const summaryCards = useMemo(() => {
     if (!org) return [];
     return [
@@ -460,6 +620,14 @@ export default function AdminSettingsPage() {
                     >
                       Profile
                     </TabsTrigger>
+                    {isOrgAdmin ? (
+                      <TabsTrigger
+                        value="templates"
+                        className="rounded-lg px-4 data-[state=active]:bg-brand-600 data-[state=active]:text-white"
+                      >
+                        Templates
+                      </TabsTrigger>
+                    ) : null}
                     <TabsTrigger
                       value="locations"
                       className="rounded-lg px-4 data-[state=active]:bg-brand-600 data-[state=active]:text-white"
@@ -504,27 +672,58 @@ export default function AdminSettingsPage() {
                                 required
                               />
                             </div>
+                            <div className="sm:col-span-2">
+                              <Label htmlFor="org-subdomain">Subdomain</Label>
+                              <Input
+                                id="org-subdomain"
+                                value={branding.slug}
+                                onChange={(e) =>
+                                  setBranding((prev) => ({
+                                    ...prev,
+                                    slug: e.target.value.toLowerCase().replace(/\s+/g, '-'),
+                                  }))
+                                }
+                                placeholder="eci"
+                                autoCapitalize="off"
+                                autoCorrect="off"
+                                spellCheck={false}
+                                required
+                              />
+                              <p className="mt-1 text-xs text-text-muted">
+                                Use lowercase letters, numbers, and hyphens only.
+                              </p>
+                            </div>
 
                             <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/60">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-                                Booking preview
-                              </p>
-                              <div className="mt-3 flex items-center gap-3">
-                                <Image
-                                  src={PLATFORM_LOGO_PATH}
-                                  alt=""
-                                  width={36}
-                                  height={36}
-                                  className="h-9 w-9 shrink-0 rounded-lg object-contain"
-                                />
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-text-primary">
-                                    {branding.name || 'Your organization'}
-                                  </p>
-                                  <p className="text-xs text-text-secondary">
-                                    Same app logo shown on customer booking pages
+                              <div className="mt-3 min-w-0 space-y-2">
+                                <p className="text-sm font-semibold text-text-secondary">
+                                  {(branding.name?.trim() || 'Organization')} URL
+                                </p>
+                                <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 dark:border-slate-700 dark:bg-slate-950">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void copyToClipboard(
+                                        customerBookingUrl,
+                                        `${branding.name?.trim() || 'Organization'} URL copied`,
+                                      )
+                                    }
+                                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-secondary transition hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800"
+                                    aria-label="Copy organization URL"
+                                    title="Copy URL"
+                                  >
+                                    <Copy className="h-3.5 w-3.5" />
+                                  </button>
+                                  <p className="truncate text-xs text-text-secondary sm:text-sm">
+                                    {customerBookingUrl}
                                   </p>
                                 </div>
+                                {!bookingPreview.usesSubdomain ? (
+                                  <p className="text-xs text-text-muted">
+                                    Localhost fallback uses query param. Production uses subdomain
+                                    format: <span className="font-medium">slug.your-domain.com</span>.
+                                  </p>
+                                ) : null}
                               </div>
                             </div>
                           </div>
@@ -591,6 +790,44 @@ export default function AdminSettingsPage() {
                       </CardBody>
                     </Card>
                   </div>
+
+                  {isOrgAdmin ? (
+                    <Card className="mt-6 border-red-200 dark:border-red-900/60">
+                      <CardBody className="p-5 sm:p-6">
+                        <div className="mb-4 flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
+                            <Trash2 className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <h2 className="font-display text-lg font-semibold text-text-primary">
+                              Danger zone
+                            </h2>
+                            <p className="text-sm text-text-secondary">
+                              Permanently delete appointments and waitlist entries.
+                            </p>
+                          </div>
+                        </div>
+
+                        <p className="mb-4 text-sm text-text-secondary">
+                          This clears{' '}
+                          {selectedLocation
+                            ? `all appointments and waitlist records for ${selectedLocation.name}`
+                            : 'all appointments and waitlist records in your organization'}
+                          . Providers, services, and settings remain unchanged.
+                        </p>
+
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/40"
+                          onClick={() => setClearOpen(true)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Clear all appointments
+                        </Button>
+                      </CardBody>
+                    </Card>
+                  ) : null}
                 </TabsContent>
 
                 <TabsContent value="profile" className="mt-0">
@@ -778,6 +1015,12 @@ export default function AdminSettingsPage() {
                   </div>
                 </TabsContent>
 
+                {isOrgAdmin ? (
+                  <TabsContent value="templates" className="mt-0 space-y-6">
+                    <NotificationTemplatesSettings />
+                  </TabsContent>
+                ) : null}
+
                 <TabsContent value="locations" className="mt-0 space-y-6">
                   <AdminLocationsCard
                     locations={org.locations}
@@ -924,6 +1167,34 @@ export default function AdminSettingsPage() {
           )}
         </div>
       </div>
+
+      <Dialog open={clearOpen} onOpenChange={setClearOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear all appointments?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes{' '}
+              {selectedLocation
+                ? `every appointment and waitlist entry for ${selectedLocation.name}`
+                : 'every appointment and waitlist entry in your organization'}
+              . Providers, services, and availability are kept. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setClearOpen(false)} disabled={clearing}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={clearing}
+              onClick={() => void handleClearAllAppointments()}
+            >
+              {clearing ? 'Clearing...' : 'Clear all'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageTransition>
   );
 }

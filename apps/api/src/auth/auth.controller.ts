@@ -89,8 +89,9 @@ export class AuthController {
   verifyEmail(
     @Query('token') token: string,
     @Res({ passthrough: true }) res: Response,
+    @Query('email') email?: string,
   ) {
-    return this.auth.verifyEmail(token, res);
+    return this.auth.verifyEmail(token, res, email);
   }
 
   @Public()

@@ -1,7 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { UserRole } from '@pkg/shared-types';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { STAFF_ROLES, UserRole } from '@pkg/shared-types';
+import { Prisma } from '@prisma/client';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildShortBookingSessionUrl } from '../common/booking-link.util';
+import { EmailService } from '../notifications/email.service';
+import { teamInviteEmail } from '../notifications/templates';
 import {
   slugifyName,
   uniqueProductKey,
@@ -23,9 +27,24 @@ const MANAGER_ROLES: UserRole[] = [
   UserRole.LOCATION_MANAGER,
 ];
 
+const DEFAULT_PROVIDER_AVAILABILITY = [1, 2, 3, 4, 5].map((dayOfWeek) => ({
+  dayOfWeek,
+  startTime: '09:00',
+  endTime: '17:00',
+}));
+const PROVIDER_INVITE_TTL_DAYS = 7;
+
 @Injectable()
 export class CatalogService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private email: EmailService,
+  ) {}
+
+  private inviteAcceptUrl(token: string) {
+    const base = process.env.WEB_URL ?? 'http://localhost:3002';
+    return `${base}/invite/${token}`;
+  }
 
   async listLocations(orgSlug?: string) {
     const where = orgSlug ? { organization: { slug: orgSlug } } : {};
@@ -181,6 +200,7 @@ export class CatalogService {
     bufferBeforeMinutes?: number;
     bufferAfterMinutes?: number;
     priceCents?: number | null;
+    isDefault?: boolean;
     isActive?: boolean;
   }) {
     if (data.priceCents != null && data.priceCents < 0) {
@@ -202,6 +222,7 @@ export class CatalogService {
       bufferAfterMinutes?: number;
       productKey?: string;
       description?: string;
+      isDefault?: boolean;
       isActive?: boolean;
       priceCents?: number | null;
     },
@@ -247,7 +268,7 @@ export class CatalogService {
     });
   }
 
-  /** @deprecated Use archiveService — kept for DELETE route compatibility */
+  /** @deprecated Use archiveService - kept for DELETE route compatibility */
   async deleteService(id: string) {
     return this.archiveService(id);
   }
@@ -259,13 +280,145 @@ export class CatalogService {
     email?: string;
     bio?: string;
     isActive?: boolean;
-  }) {
+  }, options?: { invitedById?: string }) {
+    const normalizedEmail = data.email?.trim().toLowerCase() || undefined;
+    const shouldInvite = Boolean(normalizedEmail);
+
     const slug = await uniqueProviderSlug(
       this.prisma,
       data.organizationId,
       slugifyName(data.name),
     );
-    return this.prisma.provider.create({ data: { ...data, slug } });
+    const created = await this.prisma
+      .$transaction(async (tx) => {
+        const provider = await tx.provider.create({
+          data: {
+            ...data,
+            email: normalizedEmail,
+            isActive: shouldInvite ? false : (data.isActive ?? true),
+            slug,
+          },
+        });
+        await tx.availabilityRule.createMany({
+          data: DEFAULT_PROVIDER_AVAILABILITY.map((rule) => ({
+            providerId: provider.id,
+            ...rule,
+          })),
+        });
+        const defaultServices = await tx.service.findMany({
+          where: {
+            organizationId: data.organizationId,
+            locationId: data.locationId,
+            archivedAt: null,
+            isDefault: true,
+          },
+          select: { id: true },
+        });
+        if (defaultServices.length > 0) {
+          await tx.serviceProvider.createMany({
+            data: defaultServices.map((service) => ({
+              serviceId: service.id,
+              providerId: provider.id,
+            })),
+            skipDuplicates: true,
+          });
+        }
+
+        if (!shouldInvite) {
+          return { provider, invite: null };
+        }
+        const inviteEmail = normalizedEmail;
+        if (!inviteEmail) {
+          return { provider, invite: null };
+        }
+
+        if (!options?.invitedById) {
+          throw new BadRequestException('invitedById is required for provider onboarding');
+        }
+
+        const existingUser = await tx.user.findUnique({ where: { email: inviteEmail } });
+        if (existingUser) {
+          if (existingUser.role === UserRole.CUSTOMER) {
+            throw new ConflictException(
+              'Email is registered as a customer. Use a work email for provider login.',
+            );
+          }
+          if (existingUser.organizationId !== data.organizationId) {
+            throw new ConflictException('Email is already used in another organization');
+          }
+          if (STAFF_ROLES.includes(existingUser.role as UserRole)) {
+            throw new ConflictException('This person is already on your team');
+          }
+        }
+
+        const linked = await tx.user.findFirst({ where: { providerId: provider.id } });
+        if (linked) {
+          throw new ConflictException('This provider already has a user account');
+        }
+
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + PROVIDER_INVITE_TTL_DAYS);
+        const token = randomBytes(32).toString('hex');
+
+        await tx.teamInvite.deleteMany({
+          where: {
+            organizationId: data.organizationId,
+            email: inviteEmail,
+            role: UserRole.PROVIDER,
+            acceptedAt: null,
+          },
+        });
+
+        const invite = await tx.teamInvite.create({
+          data: {
+            organizationId: data.organizationId,
+            email: inviteEmail,
+            role: UserRole.PROVIDER,
+            providerId: provider.id,
+            token,
+            invitedById: options.invitedById,
+            expiresAt,
+          },
+          include: {
+            organization: { select: { name: true } },
+          },
+        });
+
+        return { provider, invite };
+      })
+      .catch((error: unknown) => {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2022'
+        ) {
+          throw new BadRequestException(
+            'Database schema is out of date. Run `npm run prisma:push --prefix apps/api` and restart the API.',
+          );
+        }
+        throw error;
+      });
+
+    let inviteEmailSent = false;
+    if (created.invite) {
+      try {
+        const { subject, html } = teamInviteEmail({
+          organizationName: created.invite.organization.name,
+          role: UserRole.PROVIDER,
+          acceptUrl: this.inviteAcceptUrl(created.invite.token),
+          expiresAt: created.invite.expiresAt.toLocaleDateString(),
+        });
+        await this.email.send(created.invite.email, subject, html);
+        inviteEmailSent = true;
+      } catch {
+        inviteEmailSent = false;
+      }
+    }
+
+    return {
+      ...created.provider,
+      invitePending: Boolean(created.invite),
+      inviteEmailSent,
+    };
   }
 
   async updateProvider(
@@ -283,6 +436,127 @@ export class CatalogService {
       );
     }
     return this.prisma.provider.update({ where: { id }, data: payload });
+  }
+
+  async resendProviderInvite(
+    organizationId: string,
+    invitedById: string,
+    providerId: string,
+    data?: { email?: string | null },
+  ) {
+    const existingProvider = await this.prisma.provider.findFirst({
+      where: { id: providerId, organizationId },
+    });
+    if (!existingProvider) {
+      throw new NotFoundException('Provider not found');
+    }
+    if (existingProvider.archivedAt) {
+      throw new BadRequestException('Restore provider before resending invite');
+    }
+    if (existingProvider.isActive) {
+      throw new BadRequestException('Provider is already active');
+    }
+
+    const normalizedEmail =
+      data?.email?.trim().toLowerCase() || existingProvider.email?.trim().toLowerCase();
+    if (!normalizedEmail) {
+      throw new BadRequestException('Provider email is required to send invite');
+    }
+
+    const invite = await this.prisma.$transaction(async (tx) => {
+      const provider = await tx.provider.findFirst({
+        where: { id: providerId, organizationId },
+      });
+      if (!provider) {
+        throw new NotFoundException('Provider not found');
+      }
+      if (provider.archivedAt) {
+        throw new BadRequestException('Restore provider before resending invite');
+      }
+      if (provider.isActive) {
+        throw new BadRequestException('Provider is already active');
+      }
+
+      const existingUser = await tx.user.findUnique({ where: { email: normalizedEmail } });
+      if (existingUser) {
+        if (existingUser.role === UserRole.CUSTOMER) {
+          throw new ConflictException(
+            'Email is registered as a customer. Use a work email for provider login.',
+          );
+        }
+        if (existingUser.organizationId !== organizationId) {
+          throw new ConflictException('Email is already used in another organization');
+        }
+        if (STAFF_ROLES.includes(existingUser.role as UserRole)) {
+          if (existingUser.providerId === provider.id) {
+            throw new ConflictException('This provider already has a user account');
+          }
+          throw new ConflictException('This person is already on your team');
+        }
+      }
+
+      const linked = await tx.user.findFirst({ where: { providerId: provider.id } });
+      if (linked) {
+        throw new ConflictException('This provider already has a user account');
+      }
+
+      if ((provider.email ?? '') !== normalizedEmail) {
+        await tx.provider.update({
+          where: { id: provider.id },
+          data: { email: normalizedEmail, isActive: false },
+        });
+      }
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + PROVIDER_INVITE_TTL_DAYS);
+      const token = randomBytes(32).toString('hex');
+
+      await tx.teamInvite.deleteMany({
+        where: {
+          organizationId,
+          providerId: provider.id,
+          role: UserRole.PROVIDER,
+          acceptedAt: null,
+        },
+      });
+
+      return tx.teamInvite.create({
+        data: {
+          organizationId,
+          email: normalizedEmail,
+          role: UserRole.PROVIDER,
+          providerId: provider.id,
+          token,
+          invitedById,
+          expiresAt,
+        },
+        include: {
+          organization: { select: { name: true } },
+        },
+      });
+    });
+
+    let inviteEmailSent = false;
+    try {
+      const { subject, html } = teamInviteEmail({
+        organizationName: invite.organization.name,
+        role: UserRole.PROVIDER,
+        acceptUrl: this.inviteAcceptUrl(invite.token),
+        expiresAt: invite.expiresAt.toLocaleDateString(),
+      });
+      await this.email.send(invite.email, subject, html);
+      inviteEmailSent = true;
+    } catch {
+      inviteEmailSent = false;
+    }
+
+    return {
+      providerId,
+      email: invite.email,
+      invitePending: true,
+      inviteEmailSent,
+      expiresAt: invite.expiresAt,
+    };
   }
 
   async archiveProvider(id: string) {
@@ -305,7 +579,60 @@ export class CatalogService {
     });
   }
 
-  /** @deprecated Use archiveProvider — kept for DELETE route compatibility */
+  async hardDeleteProvider(id: string) {
+    const provider = await this.getProvider(id);
+    const appointmentCount = await this.prisma.appointment.count({
+      where: { providerId: id },
+    });
+    if (appointmentCount > 0) {
+      throw new BadRequestException(
+        'Cannot permanently delete a provider with appointment history. Archive instead.',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const linkedUser = await tx.user.findFirst({ where: { providerId: id } });
+      if (linkedUser) {
+        const noteCount = await tx.appointmentNote.count({
+          where: { authorId: linkedUser.id },
+        });
+        if (noteCount > 0) {
+          throw new BadRequestException(
+            'Cannot permanently delete this provider account because notes exist. Archive instead.',
+          );
+        }
+        await tx.user.delete({ where: { id: linkedUser.id } });
+      }
+
+      const inviteOrFilters: Array<{
+        providerId?: string;
+        email?: string;
+        role?: string;
+      }> = [{ providerId: id }];
+      if (provider.email) {
+        inviteOrFilters.push({
+          email: provider.email.toLowerCase(),
+          role: UserRole.PROVIDER,
+        });
+      }
+      await tx.teamInvite.deleteMany({
+        where: {
+          organizationId: provider.organizationId,
+          OR: inviteOrFilters,
+        },
+      });
+
+      await tx.partnerBookingSession.updateMany({
+        where: { providerId: id },
+        data: { providerId: null },
+      });
+
+      await tx.provider.delete({ where: { id } });
+    });
+
+    return { ok: true };
+  }
+  /** @deprecated Use archiveProvider - kept for DELETE route compatibility */
   async deleteProvider(id: string) {
     return this.archiveProvider(id);
   }

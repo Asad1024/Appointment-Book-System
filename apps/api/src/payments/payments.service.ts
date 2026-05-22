@@ -3,6 +3,7 @@ import { normalizeBookingCurrency } from '@pkg/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { IntakeValidationService } from '../appointments/intake-validation.service';
 import type { IntakeResponseInput } from '../appointments/intake-validation.service';
+import { buildTenantBookingRootUrl } from '../common/booking-link.util';
 import { StripeService } from './stripe.service';
 import type { BookingCheckoutDto } from './dto/booking-checkout.dto';
 
@@ -73,14 +74,22 @@ export class PaymentsService {
     }
 
     const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
-    const orgQ = dto.org ? `&org=${encodeURIComponent(dto.org)}` : '';
+    const bookingRoot = dto.org
+      ? buildTenantBookingRootUrl(webUrl, dto.org)
+      : `${webUrl.replace(/\/$/, '')}/book`;
+    const successUrl = (() => {
+      const url = new URL(bookingRoot);
+      url.pathname = '/book/complete';
+      url.searchParams.set('session_id', '{CHECKOUT_SESSION_ID}');
+      return url.toString();
+    })();
     const url = await this.stripe.createBookingCheckoutSession({
       amountCents: amount,
       currency: bookingCurrency,
       serviceName: service.name,
       customerEmail: dto.customerEmail,
-      successUrl: `${webUrl}/book/complete?session_id={CHECKOUT_SESSION_ID}${orgQ}`,
-      cancelUrl: `${webUrl}/book${dto.org ? `?org=${encodeURIComponent(dto.org)}` : ''}`,
+      successUrl,
+      cancelUrl: bookingRoot,
       metadata: {
         locationId: dto.locationId,
         serviceId: dto.serviceId,

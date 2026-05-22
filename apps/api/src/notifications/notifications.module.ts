@@ -6,6 +6,7 @@ import { ReminderScheduler } from './reminder.scheduler';
 import { ReminderConfigService } from './reminder-config.service';
 import { EmailService } from './email.service';
 import { NotificationSenderService } from './notification-sender.service';
+import { NotificationTemplateService } from './notification-template.service';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { NotificationsController } from './notifications.controller';
 
@@ -24,6 +25,7 @@ export class NotificationsModule {
     const providers = [
       EmailService,
       NotificationSenderService,
+      NotificationTemplateService,
       NotificationsService,
       ReminderScheduler,
       ReminderConfigService,
@@ -36,7 +38,12 @@ export class NotificationsModule {
       imports,
       controllers: [NotificationsController],
       providers,
-      exports: [NotificationsService, EmailService, ReminderConfigService],
+      exports: [
+        NotificationsService,
+        EmailService,
+        ReminderConfigService,
+        NotificationTemplateService,
+      ],
     };
   }
 }

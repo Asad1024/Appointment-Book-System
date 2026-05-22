@@ -15,6 +15,7 @@ export interface NotificationJob {
 
 type NotificationLogsQuery = {
   locationId?: string;
+  providerId?: string;
   status?: string;
   channel?: string;
   q?: string;
@@ -83,6 +84,7 @@ export class NotificationsService {
       appointment: {
         organizationId: orgId,
         ...(query.locationId ? { locationId: query.locationId } : {}),
+        ...(query.providerId ? { providerId: query.providerId } : {}),
       },
       ...(status ? { status } : {}),
       ...(channel ? { type: { startsWith: `${channel}:` } } : {}),
@@ -201,4 +203,3 @@ export class NotificationsService {
     };
   }
 }
-

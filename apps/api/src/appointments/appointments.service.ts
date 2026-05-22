@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -10,6 +11,7 @@ import {
   AppointmentSource,
   AppointmentStatus,
   AuditAction,
+  UserRole,
   buildReminderScheduleForAppointment,
   parseReminderOffsetsJson,
   parseRemindersSentJson,
@@ -34,6 +36,7 @@ import { CalendarSyncService } from '../integrations/calendar-sync.service';
 import { IntakeValidationService } from './intake-validation.service';
 import { AppointmentNotesService } from './appointment-notes.service';
 import { buildIcsContent, calendarEventFromAppointment } from '../common/calendar-export';
+import { buildTenantBookingRootUrl } from '../common/booking-link.util';
 
 const STATUS_TRANSITIONS: Record<string, AppointmentStatus[]> = {
   [AppointmentStatus.PENDING]: [
@@ -208,6 +211,9 @@ export class AppointmentsService {
       where: { locations: { some: { id: dto.locationId } } },
     });
     if (!org) throw new NotFoundException('Organization not found');
+    if (!org.isActive) {
+      throw new BadRequestException('This organization is not accepting bookings');
+    }
 
     await this.billing.assertCanAcceptBooking(org.id);
 
@@ -226,9 +232,21 @@ export class AppointmentsService {
       const result = await this.prisma.$transaction(async (tx) => {
         await this.validation.assertNoOverlap(tx, providerId, startUtc, endUtc);
 
+        const normalizedEmail = dto.customerEmail.toLowerCase();
         const existingCustomer = await tx.customer.findUnique({
-          where: { email: dto.customerEmail.toLowerCase() },
+          where: {
+            organizationId_email: {
+              organizationId: org.id,
+              email: normalizedEmail,
+            },
+          },
         });
+        const matchingUser = await tx.user.findUnique({
+          where: { email: normalizedEmail },
+          select: { id: true, role: true },
+        });
+        const customerUserId =
+          matchingUser?.role === UserRole.CUSTOMER ? matchingUser.id : null;
 
         const snapshotOffsets = this.reminderConfig.resolveOffsetsForBooking({
           location,
@@ -270,12 +288,19 @@ export class AppointmentsService {
         }
 
         const customer = await tx.customer.upsert({
-          where: { email: dto.customerEmail.toLowerCase() },
+          where: {
+            organizationId_email: {
+              organizationId: org.id,
+              email: normalizedEmail,
+            },
+          },
           update: customerUpdate,
           create: {
+            organizationId: org.id,
             name: dto.customerName,
-            email: dto.customerEmail.toLowerCase(),
+            email: normalizedEmail,
             phone: dto.customerPhone.trim(),
+            userId: customerUserId,
             remindersEnabled: dto.remindersEnabled ?? true,
             reminderOffsetsMinutes:
               dto.reminderOffsetsMinutes !== undefined
@@ -283,6 +308,16 @@ export class AppointmentsService {
                 : null,
           },
         });
+
+        if (
+          customerUserId &&
+          (!customer.userId || customer.userId === customerUserId)
+        ) {
+          await tx.customer.update({
+            where: { id: customer.id },
+            data: { userId: customerUserId },
+          });
+        }
 
         const appointment = await tx.appointment.create({
           data: {
@@ -442,10 +477,10 @@ export class AppointmentsService {
       include: { organization: true, services: { where: { id: params.serviceId }, take: 1 } },
     });
     const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
-    const orgSlug = loc?.organization.slug ?? 'demo-company';
+    const orgSlug = loc?.organization.slug;
+    if (!orgSlug) return 0;
     const serviceName = loc?.services[0]?.name ?? 'your service';
-    const bookUrl = new URL('/book', webUrl);
-    bookUrl.searchParams.set('org', orgSlug);
+    const bookUrl = new URL(buildTenantBookingRootUrl(webUrl, orgSlug));
     bookUrl.searchParams.set('location', params.locationId);
 
     let notified = 0;
@@ -596,12 +631,15 @@ export class AppointmentsService {
         review: true,
         location: {
           include: {
-            organization: { select: { name: true, logoUrl: true } },
+            organization: { select: { name: true, logoUrl: true, isActive: true } },
           },
         },
       },
     });
     if (!appt) throw new NotFoundException('Appointment not found');
+    if (!appt.location.organization?.isActive) {
+      throw new ForbiddenException('This business is no longer accepting bookings');
+    }
     return appt;
   }
 

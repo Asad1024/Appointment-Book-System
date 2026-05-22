@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { Logo } from '@/components/Logo';
 import { Card, CardContent } from '@/components/ui/card';
 import { PLATFORM } from '@/lib/brand';
@@ -7,10 +6,12 @@ export function AuthShell({
   children,
   title,
   subtitle,
+  headerRight,
 }: {
   children: React.ReactNode;
   title?: string;
   subtitle?: string;
+  headerRight?: React.ReactNode;
 }) {
   return (
     <div className="flex min-h-screen">
@@ -30,8 +31,9 @@ export function AuthShell({
         </div>
         <Card className="w-full max-w-md shadow-float">
           <CardContent className="p-8">
-            <div className="mb-6 flex justify-center lg:justify-start">
+            <div className="mb-6 flex items-center justify-between">
               <Logo href="/" className="hidden lg:flex" />
+              {headerRight ? <div className="ml-auto">{headerRight}</div> : null}
             </div>
             {title && (
               <h1 className="font-display text-2xl font-bold text-text-primary">{title}</h1>

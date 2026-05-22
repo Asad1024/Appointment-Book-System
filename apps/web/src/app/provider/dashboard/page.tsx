@@ -7,11 +7,14 @@ import { formatInTimeZone } from 'date-fns-tz';
 import {
   CalendarDays,
   Calendar as CalendarIcon,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Clock3,
   Filter,
   Link2,
   List,
+  XCircle,
 } from 'lucide-react';
 import {
   AppointmentCalendar,
@@ -39,7 +42,6 @@ import {
 import { cn } from '@/lib/utils';
 import { useRealtimeEvents } from '@/lib/useRealtimeEvents';
 import type { CalendarHourRange } from '@/components/calendar/calendar-utils';
-import { GoogleCalendarConnect } from '@/components/provider/GoogleCalendarConnect';
 import { GenerateBookingLinkSlideOver } from '@/components/admin/GenerateBookingLinkSlideOver';
 import { bookingLinkSourceFromRole } from '@/lib/booking-link-attribution';
 import { UserRole } from '@pkg/shared-types';
@@ -52,6 +54,49 @@ type ListResponse = { data: Appointment[]; total: number };
 function weekStartMonday(d: Date) {
   return startOfWeek(d, { weekStartsOn: 1 });
 }
+
+const statCards = [
+  {
+    key: 'total',
+    label: 'This week',
+    helper: 'All scheduled bookings',
+    icon: CalendarDays,
+    valueClass: 'text-text-primary',
+    cardClass: 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
+    iconClass:
+      'border border-brand-100 bg-brand-50 text-brand-700 dark:border-brand-700 dark:bg-brand-900/35 dark:text-brand-200',
+  },
+  {
+    key: 'confirmed',
+    label: 'Confirmed',
+    helper: 'Ready to serve',
+    icon: CheckCircle2,
+    valueClass: 'text-emerald-700',
+    cardClass: 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
+    iconClass:
+      'border border-emerald-100 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200',
+  },
+  {
+    key: 'pending',
+    label: 'Pending',
+    helper: 'Need confirmation',
+    icon: Clock3,
+    valueClass: 'text-amber-700',
+    cardClass: 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
+    iconClass:
+      'border border-amber-100 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200',
+  },
+  {
+    key: 'cancelled',
+    label: 'Cancelled',
+    helper: 'Bookings cancelled this week',
+    icon: XCircle,
+    valueClass: 'text-red-700',
+    cardClass: 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
+    iconClass:
+      'border border-red-100 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200',
+  },
+] as const;
 
 export default function ProviderDashboardPage() {
   const { profile, providerId } = useProviderSession();
@@ -146,209 +191,237 @@ export default function ProviderDashboardPage() {
     const total = appointments.length;
     const confirmed = appointments.filter((a) => a.status === 'confirmed').length;
     const pending = appointments.filter((a) => a.status === 'pending').length;
-    return { total, confirmed, pending };
+    const cancelled = appointments.filter((a) => a.status === 'cancelled').length;
+    return { total, confirmed, pending, cancelled };
   }, [appointments]);
 
   function shiftWeek(delta: number) {
     setWeekStart(format(addDays(parseISO(weekStart), delta * 7), 'yyyy-MM-dd'));
   }
 
+  const statValues = {
+    total: stats.total,
+    confirmed: stats.confirmed,
+    pending: stats.pending,
+    cancelled: stats.cancelled,
+  };
+
   return (
     <PageTransition>
-      <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-text-primary sm:text-3xl">
-            My appointments
-          </h1>
-          <p className="mt-1 text-sm text-text-secondary">
-            {profile?.name}
-            {profile?.location?.name ? ` - ${profile.location.name}` : ''}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {profile?.locationId && (
-            <Button variant="outline" onClick={() => setLinkPanelOpen(true)}>
-              <Link2 className="mr-2 h-4 w-4" />
-              My booking link
-            </Button>
-          )}
-        <div className="flex gap-1 rounded-lg border border-brand-200 bg-brand-50 p-1 dark:border-brand-800/60 dark:bg-brand-950/35">
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className={cn(
-              dashboardView === 'calendar'
-                ? 'bg-brand-600 text-white hover:bg-brand-700 dark:bg-brand-500 dark:text-white dark:hover:bg-brand-600'
-                : 'text-brand-700 hover:bg-brand-100 dark:text-brand-200 dark:hover:bg-brand-900/45',
-            )}
-            aria-label="Calendar view"
-            onClick={() => setView('calendar')}
-          >
-            <CalendarIcon className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className={cn(
-              dashboardView === 'list'
-                ? 'bg-brand-600 text-white hover:bg-brand-700 dark:bg-brand-500 dark:text-white dark:hover:bg-brand-600'
-                : 'text-brand-700 hover:bg-brand-100 dark:text-brand-200 dark:hover:bg-brand-900/45',
-            )}
-            aria-label="List view"
-            onClick={() => setView('list')}
-          >
-            <List className="h-4 w-4" />
-          </Button>
-        </div>
-        </div>
-      </div>
-
-      <GoogleCalendarConnect />
-
-      <div className="mb-8 grid gap-4 sm:grid-cols-3">
-        {[
-          { label: 'This week', value: stats.total, className: 'text-text-primary' },
-          { label: 'Confirmed', value: stats.confirmed, className: 'text-emerald-600' },
-          { label: 'Pending', value: stats.pending, className: 'text-amber-600' },
-        ].map((s) => (
-          <Card key={s.label}>
-            <CardBody>
-              <p className="text-sm text-text-secondary">{s.label}</p>
-              <p className={cn('mt-1 font-display text-3xl font-bold', s.className)}>
-                {loading ? <Skeleton className="h-9 w-16" /> : <AnimatedCounter value={s.value} />}
+      <div className="-mx-4 -mt-4 sm:-mx-8 sm:-mt-8">
+        <div className="mb-4 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:px-6">
+            <div>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
+                Dashboard
+              </h1>
+              <p className="mt-1 text-sm text-text-secondary">
+                {profile?.name}
+                {profile?.location?.name ? ` - ${profile.location.name}` : ''}
               </p>
-            </CardBody>
-          </Card>
-        ))}
-      </div>
-
-      {dashboardView === 'calendar' ? (
-        <AppointmentCalendar
-          appointments={appointments}
-          loading={loading}
-          colorMode="status"
-          detailPathPrefix="/provider/appointments"
-          timezone={tz}
-          scheduleBounds={scheduleBounds}
-          onRangeChange={(from, to) => {
-            setRangeFrom(from);
-            setRangeTo(to);
-          }}
-        />
-      ) : (
-      <Card>
-        <CardBody className="space-y-4">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" size="icon" onClick={() => shiftWeek(-1)}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <div className="min-w-[200px] text-center text-sm font-medium">
-                {format(parseISO(weekStart), 'MMM d')} – {format(parseISO(weekEnd), 'MMM d, yyyy')}
-              </div>
-              <Button type="button" variant="outline" size="icon" onClick={() => shiftWeek(1)}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setWeekStart(format(weekStartMonday(new Date()), 'yyyy-MM-dd'))}
-              >
-                Today
-              </Button>
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div>
-                <Label htmlFor="week-start" className="sr-only">
-                  Week starting
-                </Label>
-                <Input
-                  id="week-start"
-                  type="date"
-                  value={weekStart}
-                  onChange={(e) => setWeekStart(e.target.value)}
-                  className="w-full sm:w-40"
-                />
+            <div className="flex flex-wrap items-center gap-2">
+              {profile?.locationId && (
+                <Button variant="outline" onClick={() => setLinkPanelOpen(true)}>
+                  <Link2 className="mr-2 h-4 w-4" />
+                  My booking link
+                </Button>
+              )}
+              <span className="mr-1 hidden text-xs font-medium text-text-muted sm:inline">View</span>
+              <div className="inline-flex rounded-xl border border-brand-200 bg-brand-50 p-1 shadow-sm dark:border-brand-800/60 dark:bg-brand-950/35">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    'gap-1.5 rounded-lg',
+                    dashboardView === 'calendar'
+                      ? 'bg-brand-600 text-white hover:bg-brand-700 dark:bg-brand-500 dark:text-white dark:hover:bg-brand-600'
+                      : 'text-brand-700 hover:bg-brand-100 dark:text-brand-200 dark:hover:bg-brand-900/45',
+                  )}
+                  onClick={() => setView('calendar')}
+                >
+                  <CalendarIcon className="h-4 w-4" />
+                  Calendar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className={cn(
+                    'gap-1.5 rounded-lg',
+                    dashboardView === 'list'
+                      ? 'bg-brand-600 text-white hover:bg-brand-700 dark:bg-brand-500 dark:text-white dark:hover:bg-brand-600'
+                      : 'text-brand-700 hover:bg-brand-100 dark:text-brand-200 dark:hover:bg-brand-900/45',
+                  )}
+                  onClick={() => setView('list')}
+                >
+                  <List className="h-4 w-4" />
+                  List
+                </Button>
               </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full sm:w-40">
-                  <Filter className="mr-2 h-4 w-4 opacity-50" />
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="confirmed">Confirmed</SelectItem>
-                  <SelectItem value="checked_in">Checked in</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="cancelled">Cancelled</SelectItem>
-                  <SelectItem value="no_show">No show</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                placeholder="Search customer, service…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full sm:w-56"
-              />
             </div>
           </div>
+        </div>
 
-          {loading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-14 w-full rounded-lg" />
-              ))}
-            </div>
-          ) : filtered.length === 0 ? (
-            <EmptyState
-              icon={CalendarDays}
-              title="No appointments this week"
-              description="Try another week or adjust your filters."
+        <div className="px-4 pb-6 sm:px-5 lg:px-6">
+          <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {statCards.map((s) => {
+              const Icon = s.icon;
+              const value = statValues[s.key];
+              return (
+                <Card key={s.key} className={cn('border shadow-sm', s.cardClass)}>
+                  <CardBody className="py-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{s.label}</p>
+                        <p className="mt-1 text-xs text-text-muted">{s.helper}</p>
+                      </div>
+                      <div
+                        className={cn(
+                          'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl',
+                          s.iconClass,
+                        )}
+                      >
+                        <Icon className="h-5 w-5" />
+                      </div>
+                    </div>
+                    <p className={cn('mt-4 font-display text-3xl font-bold tabular-nums', s.valueClass)}>
+                      {loading ? <Skeleton className="mt-1 h-9 w-14" /> : <AnimatedCounter value={value} />}
+                    </p>
+                  </CardBody>
+                </Card>
+              );
+            })}
+          </div>
+
+          {dashboardView === 'calendar' ? (
+            <AppointmentCalendar
+              appointments={appointments}
+              loading={loading}
+              colorMode="status"
+              detailPathPrefix="/provider/appointments"
+              timezone={tz}
+              scheduleBounds={scheduleBounds}
+              onRangeChange={(from, to) => {
+                setRangeFrom(from);
+                setRangeTo(to);
+              }}
             />
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
-              <table className="w-full min-w-[520px] text-left text-sm">
-                <thead className="bg-surface-muted text-text-secondary">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">When</th>
-                    <th className="px-4 py-3 font-medium">Customer</th>
-                    <th className="px-4 py-3 font-medium">Service</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filtered.map((a) => (
-                    <tr key={a.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/60">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <Link
-                          href={`/provider/appointments/${a.id}`}
-                          className="font-medium text-brand-600 hover:underline"
-                        >
-                          {formatInTimeZone(new Date(a.startUtc), tz, 'EEE, MMM d - h:mm a')}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="font-medium">{a.customer.name}</span>
-                        <br />
-                        <span className="text-text-secondary">{a.customer.email}</span>
-                      </td>
-                      <td className="px-4 py-3">{a.service.name}</td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={a.status} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Card>
+              <CardBody className="space-y-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" variant="outline" size="icon" onClick={() => shiftWeek(-1)}>
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <div className="min-w-[200px] text-center text-sm font-medium">
+                      {format(parseISO(weekStart), 'MMM d')} - {format(parseISO(weekEnd), 'MMM d, yyyy')}
+                    </div>
+                    <Button type="button" variant="outline" size="icon" onClick={() => shiftWeek(1)}>
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setWeekStart(format(weekStartMonday(new Date()), 'yyyy-MM-dd'))}
+                    >
+                      Today
+                    </Button>
+                  </div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <div>
+                      <Label htmlFor="week-start" className="sr-only">
+                        Week starting
+                      </Label>
+                      <Input
+                        id="week-start"
+                        type="date"
+                        value={weekStart}
+                        onChange={(e) => setWeekStart(e.target.value)}
+                        className="w-full sm:w-40"
+                      />
+                    </div>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                      <SelectTrigger className="w-full sm:w-40">
+                        <Filter className="mr-2 h-4 w-4 opacity-50" />
+                        <SelectValue placeholder="Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All statuses</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="confirmed">Confirmed</SelectItem>
+                        <SelectItem value="checked_in">Checked in</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                        <SelectItem value="no_show">No show</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      placeholder="Search customer, service..."
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="w-full sm:w-56"
+                    />
+                  </div>
+                </div>
+
+                {loading ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Skeleton key={i} className="h-14 w-full rounded-lg" />
+                    ))}
+                  </div>
+                ) : filtered.length === 0 ? (
+                  <EmptyState
+                    icon={CalendarDays}
+                    title="No appointments this week"
+                    description="Try another week or adjust your filters."
+                  />
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
+                    <table className="w-full min-w-[520px] text-left text-sm">
+                      <thead className="bg-surface-muted text-text-secondary">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">When</th>
+                          <th className="px-4 py-3 font-medium">Customer</th>
+                          <th className="px-4 py-3 font-medium">Service</th>
+                          <th className="px-4 py-3 font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {filtered.map((a) => (
+                          <tr key={a.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-900/60">
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <Link
+                                href={`/provider/appointments/${a.id}`}
+                                className="font-medium text-brand-600 hover:underline"
+                              >
+                                {formatInTimeZone(new Date(a.startUtc), tz, 'EEE, MMM d - h:mm a')}
+                              </Link>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="font-medium">{a.customer.name}</span>
+                              <br />
+                              <span className="text-text-secondary">{a.customer.email}</span>
+                            </td>
+                            <td className="px-4 py-3">{a.service.name}</td>
+                            <td className="px-4 py-3">
+                              <StatusBadge status={a.status} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardBody>
+            </Card>
           )}
-        </CardBody>
-      </Card>
-      )}
+        </div>
+      </div>
 
       {profile?.locationId && (
         <GenerateBookingLinkSlideOver

@@ -1,32 +1,88 @@
 'use client';
 
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ensureCsrf } from '@/lib/api';
+import { resolvePostLoginPath } from '@/lib/auth-redirect';
 import { AuthShell } from '@/components/shells/AuthShell';
 import { Alert } from '@/components/ui/alert';
 import { AnimatedCheckmark } from '@/components/shared/AnimatedCheckmark';
 import { Button } from '@/components/ui/button';
-import { Loader2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+
+const RESEND_COOLDOWN_SECONDS = 60;
+
+type VerifyStatus = 'loading' | 'success' | 'error' | 'pending';
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function formatCooldown(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
 
 function VerifyContent() {
   const router = useRouter();
   const search = useSearchParams();
-  const token = search.get('token');
+  const token = search.get('token')?.trim() ?? '';
   const pending = search.get('pending') === '1';
-  const email = search.get('email') ?? '';
-  const [status, setStatus] = useState<'loading' | 'success' | 'error' | 'pending'>(
-    pending && !token ? 'pending' : 'loading',
-  );
-  const [message, setMessage] = useState(
-    pending && !token
-      ? 'We sent a verification link to your email. Click it to activate your account.'
-      : 'Verifying your email…',
-  );
+  const queryEmail = (search.get('email') ?? '').trim().toLowerCase();
+  const roleHint = (search.get('role') ?? '').trim().toLowerCase();
+  const orgHint = (search.get('org') ?? '').trim();
+  const signInHref =
+    roleHint === 'customer'
+      ? orgHint
+        ? `/customer/login?org=${encodeURIComponent(orgHint)}`
+        : '/customer/login'
+      : roleHint === 'provider'
+        ? '/staff/login'
+        : roleHint === 'super_admin'
+          ? '/platform/login'
+          : '/login';
+
+  const [email, setEmail] = useState(queryEmail);
+  const [status, setStatus] = useState<VerifyStatus>(() => {
+    if (token) return 'loading';
+    return pending ? 'pending' : 'error';
+  });
+  const [message, setMessage] = useState(() => {
+    if (token) return 'Verifying your email...';
+    if (pending) {
+      return 'We sent a verification link to your email. Click it to activate your account.';
+    }
+    return 'Invalid or missing verification link. Request a new email.';
+  });
   const [resending, setResending] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(() =>
+    pending && !token ? RESEND_COOLDOWN_SECONDS : 0,
+  );
   const verifyAttempt = useRef(0);
+
+  useEffect(() => {
+    if (queryEmail && queryEmail !== email) {
+      setEmail(queryEmail);
+    }
+  }, [queryEmail, email]);
+
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setCooldownSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldownSeconds]);
+
+  useEffect(() => {
+    if (!pending || token) return;
+    setCooldownSeconds((prev) => (prev > 0 ? prev : RESEND_COOLDOWN_SECONDS));
+  }, [pending, token]);
 
   useEffect(() => {
     if (!token) return;
@@ -34,45 +90,81 @@ function VerifyContent() {
     const attempt = ++verifyAttempt.current;
     let redirectTimer: ReturnType<typeof setTimeout> | undefined;
 
-    api<{ message: string }>(`/auth/verify-email?token=${encodeURIComponent(token)}`)
+    const params = new URLSearchParams();
+    params.set('token', token);
+    if (queryEmail) {
+      params.set('email', queryEmail);
+    }
+
+    api<{ message?: string; user?: { role: string }; alreadyVerified?: boolean }>(
+      `/auth/verify-email?${params.toString()}`,
+    )
       .then((res) => {
         if (attempt !== verifyAttempt.current) return;
         setStatus('success');
-        setMessage(res.message ?? 'Email verified successfully');
-        toast.success('Email verified! You are now signed in.');
-        redirectTimer = setTimeout(() => router.push('/account'), 1500);
+        const isAlreadyVerified = res.alreadyVerified === true;
+        setMessage(
+          res.message ??
+            (isAlreadyVerified
+              ? 'Email already verified. Please sign in.'
+              : 'Email verified successfully.'),
+        );
+        toast.success(
+          isAlreadyVerified
+            ? 'Email already verified. You can sign in now.'
+            : 'Email verified. You are now signed in.',
+        );
+        const destination = res.user?.role
+          ? resolvePostLoginPath(res.user.role, null)
+          : signInHref;
+        redirectTimer = setTimeout(() => router.push(destination), 1500);
       })
       .catch((e) => {
         if (attempt !== verifyAttempt.current) return;
         setStatus('error');
-        setMessage(e instanceof Error ? e.message : 'Verification failed');
+        setMessage(
+          e instanceof Error ? e.message : 'Verification failed. Request a new link.',
+        );
       });
 
     return () => {
       verifyAttempt.current += 1;
       if (redirectTimer) clearTimeout(redirectTimer);
     };
-  }, [token, router]);
+  }, [token, queryEmail, router, signInHref]);
 
   async function resendLink() {
-    if (!email) {
-      toast.error('Register again or contact support if you need a new link.');
+    const targetEmail = email.trim().toLowerCase();
+    if (!isValidEmail(targetEmail)) {
+      toast.error('Enter a valid email address first.');
       return;
     }
+
     setResending(true);
     try {
       await ensureCsrf();
       await api('/auth/resend-verification', {
         method: 'POST',
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: targetEmail }),
       });
-      toast.success('Verification email sent. Check your inbox.');
+      setStatus('pending');
+      setMessage('We sent a new verification link. Check your inbox.');
+      setCooldownSeconds(RESEND_COOLDOWN_SECONDS);
+      toast.success('Verification email sent.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not resend email');
     } finally {
       setResending(false);
     }
   }
+
+  const resendButtonLabel = useMemo(() => {
+    if (resending) return 'Sending...';
+    if (cooldownSeconds > 0) return `Resend in ${formatCooldown(cooldownSeconds)}`;
+    return 'Resend verification email';
+  }, [cooldownSeconds, resending]);
+
+  const resendDisabled = resending || cooldownSeconds > 0 || !isValidEmail(email);
 
   return (
     <div className="flex flex-col items-center text-center">
@@ -82,47 +174,55 @@ function VerifyContent() {
           <p className="mt-4 text-sm text-text-secondary">{message}</p>
         </>
       )}
-      {status === 'pending' && (
+
+      {(status === 'pending' || status === 'error') && (
         <>
-          <Alert variant="default" className="w-full text-left">
-            <p className="font-medium text-text-primary">Verify your email</p>
+          <Alert variant={status === 'error' ? 'error' : 'default'} className="w-full text-left">
+            <p className="font-medium text-text-primary">
+              {status === 'error' ? 'Could not verify email' : 'Verify your email'}
+            </p>
             <p className="mt-2 text-sm text-text-secondary">{message}</p>
-            {email && (
-              <p className="mt-2 text-sm text-text-muted">
-                Sent to: <span className="font-medium">{email}</span>
-              </p>
-            )}
           </Alert>
-          <Button type="button" className="mt-6 w-full" loading={resending} onClick={resendLink}>
-            Resend verification email
+
+          <div className="mt-4 w-full text-left">
+            <Label htmlFor="verify-email-input">Email</Label>
+            <Input
+              id="verify-email-input"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@company.com"
+              className="mt-1"
+            />
+          </div>
+
+          <Button
+            type="button"
+            className="mt-4 w-full"
+            disabled={resendDisabled}
+            onClick={resendLink}
+          >
+            {resendButtonLabel}
           </Button>
-          <Link href="/login" className="mt-4 text-sm font-medium text-brand-600 hover:underline">
+
+          <p className="mt-2 text-xs text-text-muted">
+            You can request a new email every {RESEND_COOLDOWN_SECONDS} seconds.
+          </p>
+
+          <Link href={signInHref} className="mt-4 text-sm font-medium text-brand-600 hover:underline">
             Back to sign in
           </Link>
         </>
       )}
+
       {status === 'success' && (
         <>
           <AnimatedCheckmark />
           <Alert variant="success" className="mt-4 w-full">
             {message}
           </Alert>
-          <p className="mt-4 text-sm text-text-secondary">Redirecting to your account…</p>
-        </>
-      )}
-      {status === 'error' && (
-        <>
-          <Alert variant="error" className="w-full">
-            {message}
-          </Alert>
-          {email && (
-            <Button type="button" className="mt-4 w-full" loading={resending} onClick={resendLink}>
-              Resend verification email
-            </Button>
-          )}
-          <Link href="/login" className="mt-6 text-sm font-medium text-brand-600 hover:underline">
-            Back to sign in
-          </Link>
+          <p className="mt-4 text-sm text-text-secondary">Redirecting to your account...</p>
         </>
       )}
     </div>

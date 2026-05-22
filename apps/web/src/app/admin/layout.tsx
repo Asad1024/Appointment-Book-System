@@ -13,7 +13,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { user, loading, signOut, isOrgAdmin } = useStaffSession();
 
   useEffect(() => {
-    if (!loading && user?.role === UserRole.PROVIDER) {
+    if (loading || !user) return;
+    if (user.role === UserRole.SUPER_ADMIN) {
+      router.replace('/platform/dashboard');
+      return;
+    }
+    if (user.role === UserRole.PROVIDER) {
       router.replace('/provider/dashboard');
     }
   }, [loading, user, router]);

@@ -12,7 +12,12 @@ export default function ProviderRootLayout({ children }: { children: React.React
   const { user, loading, signOut } = useProviderSession();
 
   useEffect(() => {
-    if (!loading && user && user.role !== UserRole.PROVIDER) {
+    if (loading || !user) return;
+    if (user.role === UserRole.SUPER_ADMIN) {
+      router.replace('/platform/dashboard');
+      return;
+    }
+    if (user.role !== UserRole.PROVIDER) {
       router.replace('/admin/dashboard');
     }
   }, [loading, user, router]);

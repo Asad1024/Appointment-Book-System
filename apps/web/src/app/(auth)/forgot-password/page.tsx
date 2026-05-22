@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
@@ -16,6 +17,19 @@ import { AnimatedCheckmark } from '@/components/shared/AnimatedCheckmark';
 const RESEND_SECONDS = 60;
 
 export default function ForgotPasswordPage() {
+  const search = useSearchParams();
+  const roleHint = (search.get('role') ?? '').trim().toLowerCase();
+  const orgHint = (search.get('org') ?? '').trim();
+  const signInHref =
+    roleHint === 'customer'
+      ? orgHint
+        ? `/customer/login?org=${encodeURIComponent(orgHint)}`
+        : '/customer/login'
+      : roleHint === 'provider'
+        ? '/staff/login'
+        : roleHint === 'super_admin'
+          ? '/platform/login'
+          : '/login';
   const [sent, setSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const {
@@ -35,7 +49,11 @@ export default function ForgotPasswordPage() {
     await ensureCsrf();
     const res = await api<{ message: string }>('/auth/forgot-password', {
       method: 'POST',
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({
+        email,
+        role: roleHint || undefined,
+        org: roleHint === 'customer' ? orgHint || undefined : undefined,
+      }),
     });
     setSent(true);
     setCountdown(RESEND_SECONDS);
@@ -74,7 +92,7 @@ export default function ForgotPasswordPage() {
               </button>
             )}
           </p>
-          <Link href="/login" className="mt-6 inline-block text-sm font-medium text-brand-600 hover:underline">
+          <Link href={signInHref} className="mt-6 inline-block text-sm font-medium text-brand-600 hover:underline">
             Back to sign in
           </Link>
         </div>
@@ -95,7 +113,7 @@ export default function ForgotPasswordPage() {
         </Button>
       </form>
       <p className="mt-4 text-center text-sm">
-        <Link href="/login" className="text-brand-600 hover:underline">
+        <Link href={signInHref} className="text-brand-600 hover:underline">
           Back to sign in
         </Link>
       </p>

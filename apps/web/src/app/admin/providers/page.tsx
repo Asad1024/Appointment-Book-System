@@ -60,6 +60,17 @@ type Provider = {
   locationId: string;
   location?: { name: string };
 };
+type ProviderCreateResult = Provider & {
+  invitePending?: boolean;
+  inviteEmailSent?: boolean;
+};
+type ProviderInviteResult = {
+  providerId: string;
+  email: string;
+  invitePending: boolean;
+  inviteEmailSent: boolean;
+  expiresAt: string;
+};
 
 const emptyForm = { name: '', email: '', isActive: true };
 
@@ -76,6 +87,7 @@ export default function AdminProvidersPage() {
   const [editing, setEditing] = useState<Provider | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [resendingInvite, setResendingInvite] = useState(false);
   const [providerAction, setProviderAction] = useState<{
     id: string;
     type: 'archive' | 'delete';
@@ -195,6 +207,7 @@ export default function AdminProvidersPage() {
     setOpenMenuId(null);
     setPanelOpen(false);
     setEditing(null);
+    setResendingInvite(false);
     setForm(emptyForm);
     setLinkedServiceIds(new Set());
   }
@@ -243,17 +256,26 @@ export default function AdminProvidersPage() {
         );
         const loc = org.locations.find((l) => l.id === locationId);
         if (!loc) throw new Error('Select a location first');
-        const created = await apiAuth<Provider>('/catalog/providers', {
+        const shouldInviteLogin = form.email.trim().length > 0;
+        const created = await apiAuth<ProviderCreateResult>('/catalog/providers', {
           method: 'POST',
           body: JSON.stringify({
             organizationId: org.id,
             locationId: loc.id,
             name: form.name,
-            email: form.email || undefined,
-            isActive: form.isActive,
+            email: form.email.trim() || undefined,
+            isActive: shouldInviteLogin ? false : true,
           }),
         });
-        toast.success('Provider created');
+        if (created.invitePending) {
+          toast.success(
+            created.inviteEmailSent
+              ? 'Provider created as inactive. Invite email sent. After acceptance they sign in at /staff/login.'
+              : 'Provider created as inactive. Invite created, but email could not be sent.',
+          );
+        } else {
+          toast.success('Provider created');
+        }
         setEditing(created);
         setForm({
           name: created.name,
@@ -273,7 +295,11 @@ export default function AdminProvidersPage() {
   async function runProviderAction() {
     if (!providerAction) return;
     try {
-      await apiAuth(`/catalog/providers/${providerAction.id}`, { method: 'DELETE' });
+      const url =
+        providerAction.type === 'delete'
+          ? `/catalog/providers/${providerAction.id}/permanent`
+          : `/catalog/providers/${providerAction.id}`;
+      await apiAuth(url, { method: 'DELETE' });
       toast.success(providerAction.type === 'archive' ? 'Provider archived' : 'Provider deleted');
       await load();
     } catch (e) {
@@ -350,6 +376,40 @@ export default function AdminProvidersPage() {
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Update failed');
+    }
+  }
+
+  async function resendInvite() {
+    if (!editing) return;
+    if (form.isActive) {
+      toast.error('Only inactive providers can receive an invite email');
+      return;
+    }
+    const email = form.email.trim().toLowerCase();
+    if (!email) {
+      toast.error('Enter a valid email first');
+      return;
+    }
+
+    setResendingInvite(true);
+    try {
+      const result = await apiAuth<ProviderInviteResult>(`/catalog/providers/${editing.id}/resend-invite`, {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      setForm((prev) => ({ ...prev, email: result.email, isActive: false }));
+      setEditing((prev) => (prev ? { ...prev, email: result.email, isActive: false } : prev));
+
+      if (result.inviteEmailSent) {
+        toast.success(`Invite email sent to ${result.email}`);
+      } else {
+        toast.error('Invite was refreshed but email could not be sent. Try again.');
+      }
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to resend invite email');
+    } finally {
+      setResendingInvite(false);
     }
   }
 
@@ -450,17 +510,30 @@ export default function AdminProvidersPage() {
               </button>
             </>
           ) : (
-            <button
-              type="button"
-              className={menuItemClass}
-              onClick={() => {
-                setOpenMenuId(null);
-                void restore(p.id);
-              }}
-            >
-              <RotateCcw className={iconClass} />
-              Restore
-            </button>
+            <>
+              <button
+                type="button"
+                className={menuItemClass}
+                onClick={() => {
+                  setOpenMenuId(null);
+                  void restore(p.id);
+                }}
+              >
+                <RotateCcw className={iconClass} />
+                Restore
+              </button>
+              <button
+                type="button"
+                className={`${menuItemClass} text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30`}
+                onClick={() => {
+                  setOpenMenuId(null);
+                  setProviderAction({ id: p.id, type: 'delete' });
+                }}
+              >
+                <Trash2 className="h-4 w-4 shrink-0 text-red-500" />
+                Delete permanently
+              </button>
+            </>
           )}
         </PopoverContent>
       </Popover>
@@ -638,7 +711,7 @@ export default function AdminProvidersPage() {
             searchPlaceholder="Search by name, email, or location..."
             showArchived={showArchived}
             onShowArchivedChange={setShowArchived}
-            summary={`${totalProvidersCount} provider${totalProvidersCount === 1 ? '' : 's'}${showArchived && archivedCount > 0 ? ` · ${archivedCount} archived` : ''}`}
+            summary={`${totalProvidersCount} provider${totalProvidersCount === 1 ? '' : 's'}${showArchived && archivedCount > 0 ? ` - ${archivedCount} archived` : ''}`}
             filters={[
               {
                 id: 'providers-status',
@@ -740,18 +813,48 @@ export default function AdminProvidersPage() {
             <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           </div>
 
-          <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-surface-subtle px-4 py-3 dark:border-slate-800">
-            <div>
-              <p className="text-sm font-semibold text-text-primary">Active</p>
+          {editing ? (
+            <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-surface-subtle px-4 py-3 dark:border-slate-800">
+              <div>
+                <p className="text-sm font-semibold text-text-primary">Active</p>
+                <p className="text-xs text-text-secondary">
+                  Paused providers stay on your team but are hidden from booking
+                </p>
+              </div>
+              <Switch
+                checked={form.isActive}
+                onCheckedChange={(isActive) => setForm({ ...form, isActive })}
+              />
+            </div>
+          ) : (
+            <div className="rounded-xl border border-slate-100 bg-surface-subtle px-4 py-3 dark:border-slate-800">
+              <p className="text-sm font-semibold text-text-primary">Provider activation</p>
               <p className="text-xs text-text-secondary">
-                Paused providers stay on your team but are hidden from booking
+                Providers with email stay inactive until they accept their invite.
+                Providers without email are created active. After accepting invite, providers sign
+                in at <span className="font-medium text-text-primary">/staff/login</span>.
               </p>
             </div>
-            <Switch
-              checked={form.isActive}
-              onCheckedChange={(isActive) => setForm({ ...form, isActive })}
-            />
-          </div>
+          )}
+
+          {editing && !form.isActive ? (
+            <div className="rounded-xl border border-slate-100 bg-surface-subtle px-4 py-3 dark:border-slate-800">
+              <p className="text-sm font-semibold text-text-primary">Invite email</p>
+              <p className="text-xs text-text-secondary">
+                If the email is wrong, update it above and resend the provider invite.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-3 w-full"
+                loading={resendingInvite}
+                disabled={saving || resendingInvite || !form.email.trim()}
+                onClick={() => void resendInvite()}
+              >
+                Resend invite email
+              </Button>
+            </div>
+          ) : null}
 
           {editing ? (
             (() => {
@@ -841,7 +944,7 @@ export default function AdminProvidersPage() {
         description={
           providerAction?.type === 'archive'
             ? 'Archived providers are hidden from booking and scheduling. You can restore them later.'
-            : 'This removes the provider from active booking and scheduling. You can restore them later.'
+            : 'This permanently deletes the provider and linked login (only if no appointment history exists).'
         }
         confirmLabel={providerAction?.type === 'archive' ? 'Archive' : 'Delete'}
         variant="destructive"

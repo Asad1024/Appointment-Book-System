@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, apiAuth, ensureCsrf, fetchMe, type AuthUser } from '@/lib/api';
+import { publicBookingPath } from '@/lib/booking-url';
 import { type CalendarAppointment, AppointmentCalendar } from '@/components/calendar/AppointmentCalendar';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
@@ -100,7 +101,7 @@ export default function AccountPage() {
         if (msg.toLowerCase().includes('verify')) {
           router.push('/verify-email?pending=1');
         } else {
-          router.push('/login');
+          router.push('/customer/login');
         }
       } finally {
         if (mounted) setLoading(false);
@@ -118,6 +119,10 @@ export default function AccountPage() {
     });
     return Array.from(unique).sort((a, b) => a.localeCompare(b));
   }, [appointments]);
+
+  const bookPath = publicBookingPath(
+    user?.organizationSlug ?? user?.organizations?.[0]?.slug,
+  );
 
   const stats = useMemo(() => {
     const now = new Date();
@@ -276,7 +281,7 @@ export default function AccountPage() {
           </div>
 
           <div className="flex items-stretch">
-            <Link href="/book" className="w-full lg:w-auto">
+            <Link href={bookPath} className="w-full lg:w-auto">
               <Button className="h-full min-h-[74px] w-full rounded-xl px-6 text-base lg:min-h-0">
                 <Sparkles className="mr-2 h-4 w-4" />
                 Book new session
@@ -394,7 +399,7 @@ export default function AccountPage() {
                 <p className="mt-1 text-sm text-text-secondary">
                   Try changing search/filter or book a new session.
                 </p>
-                <Link href="/book" className="mt-6 inline-block">
+                <Link href={bookPath} className="mt-6 inline-block">
                   <Button>Book now</Button>
                 </Link>
               </CardBody>
@@ -471,7 +476,7 @@ export default function AccountPage() {
                               Cancel
                             </Button>
                           ) : (
-                            <Link href="/book" className="flex-1 sm:flex-none">
+                            <Link href={bookPath} className="flex-1 sm:flex-none">
                               <Button variant="outline" className="w-full sm:w-auto">
                                 Book again
                               </Button>

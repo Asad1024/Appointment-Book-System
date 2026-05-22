@@ -1,6 +1,6 @@
 import { UserRole } from '@pkg/shared-types';
 
-/** URL `source` param — who generated the staff booking link */
+/** URL `source` param - who generated the staff booking link */
 export function bookingLinkSourceFromRole(role: string): string {
   switch (role) {
     case UserRole.PROVIDER:
@@ -15,11 +15,11 @@ export function bookingLinkSourceFromRole(role: string): string {
   }
 }
 
-/** Human-readable label for the disabled “shared from” field */
+/** Human-readable label for the disabled "shared from" field */
 export function bookingLinkSourceLabel(source: string): string {
   const labels: Record<string, string> = {
-    admin: 'Admin portal',
-    provider: 'Provider portal',
+    admin: 'Workspace portal',
+    provider: 'Staff portal',
     manager: 'Location manager',
     staff: 'Staff portal',
     web: 'Website',

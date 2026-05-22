@@ -25,15 +25,20 @@ model Organization {
   paymentMethodBrand    String?   @map("payment_method_brand")
   stripeCustomerId      String?   @unique @map("stripe_customer_id")
   stripeSubscriptionId  String?   @unique @map("stripe_subscription_id")
+  isActive              Boolean   @default(true) @map("is_active")
+  onboardingChecklist   String?   @map("onboarding_checklist")
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at")
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
   locations   Location[]
   users       User[]
+  customers   Customer[]
   teamInvites TeamInvite[]
   apiKeys                ApiKey[]
   outboundWebhooks       OutboundWebhook[]
   partnerBookingSessions PartnerBookingSession[]
+  notificationTemplates  NotificationTemplate[]
 
   @@map("organizations")
 }
@@ -148,7 +153,7 @@ model User {
 
   organization  Organization      @relation(fields: [organizationId], references: [id])
   provider      Provider?         @relation(fields: [providerId], references: [id])
-  customer      Customer?
+  customers     Customer[]
   invitesSent   TeamInvite[]      @relation("InvitedBy")
   authoredNotes AppointmentNote[] @relation("NoteAuthor")
 
@@ -230,6 +235,7 @@ model Service {
   bufferAfterMinutes  Int      @default(10) @map("buffer_after_minutes")
   priceCents          Int?     @map("price_cents")
   requiresApproval    Boolean  @default(false) @map("requires_approval")
+  isDefault           Boolean  @default(false) @map("is_default")
   isActive            Boolean   @default(true) @map("is_active")
   archivedAt          DateTime? @map("archived_at")
   createdAt           DateTime  @default(now()) @map("created_at")
@@ -315,7 +321,8 @@ model BlockedTime {
 
 model Customer {
   id                     String   @id @default(uuid())
-  userId                 String?  @unique @map("user_id")
+  organizationId         String   @map("organization_id")
+  userId                 String?  @map("user_id")
   name                   String
   email                  String
   phone                  String?
@@ -324,10 +331,14 @@ model Customer {
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
 
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User?         @relation(fields: [userId], references: [id])
   appointments Appointment[]
 
-  @@unique([email])
+  @@unique([organizationId, email])
+  @@unique([organizationId, userId])
+  @@index([email])
+  @@index([userId])
   @@map("customers")
 }
 
@@ -405,6 +416,26 @@ model NotificationLog {
   appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
   @@map("notification_logs")
+}
+
+model NotificationTemplate {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  channel        String
+  audience       String
+  eventType      String   @map("event_type")
+  name           String
+  subject        String?
+  body           String   @db.Text
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, channel, audience, eventType])
+  @@index([organizationId, isDefault])
+  @@map("notification_templates")
 }
 
 model Waitlist {

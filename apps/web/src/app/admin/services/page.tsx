@@ -28,6 +28,7 @@ import { EmptyState } from '@/components/admin/EmptyState';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { CatalogStatusBadge } from '@/components/admin/CatalogStatusBadge';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardBody } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -51,6 +52,7 @@ type Service = {
   durationMinutes: number;
   priceCents?: number | null;
   productKey?: string | null;
+  isDefault: boolean;
   isActive: boolean;
   archivedAt?: string | null;
   locationId: string;
@@ -86,6 +88,7 @@ const emptyForm = {
   bufferBeforeMinutes: 0,
   bufferAfterMinutes: 10,
   description: '',
+  isDefault: false,
   isActive: true,
 };
 
@@ -137,10 +140,15 @@ export default function AdminServicesPage() {
 
   useEffect(() => {
     void load();
-    apiAuth<Provider[]>(`/catalog/admin/providers?includeArchived=true`)
+    if (!locationId) {
+      setProviders([]);
+      return;
+    }
+    const q = new URLSearchParams({ locationId });
+    apiAuth<Provider[]>(`/catalog/admin/providers?${q}`)
       .then(setProviders)
       .catch(() => {});
-  }, [load]);
+  }, [load, locationId]);
 
   const activeServices = useMemo(() => services.filter((s) => !s.archivedAt), [services]);
   const archivedServices = useMemo(() => services.filter((s) => s.archivedAt), [services]);
@@ -242,6 +250,7 @@ export default function AdminServicesPage() {
       bufferBeforeMinutes: s.bufferBeforeMinutes,
       bufferAfterMinutes: s.bufferAfterMinutes,
       description: s.description ?? '',
+      isDefault: Boolean(s.isDefault),
       isActive: s.isActive,
     });
     void loadLinks(s);
@@ -263,6 +272,7 @@ export default function AdminServicesPage() {
             bufferBeforeMinutes: form.bufferBeforeMinutes,
             bufferAfterMinutes: form.bufferAfterMinutes,
             description: form.description,
+            isDefault: form.isDefault,
             isActive: form.isActive,
           }),
         });
@@ -287,6 +297,7 @@ export default function AdminServicesPage() {
             bufferBeforeMinutes: form.bufferBeforeMinutes,
             bufferAfterMinutes: form.bufferAfterMinutes,
             description: form.description,
+            isDefault: form.isDefault,
             isActive: form.isActive,
           }),
         });
@@ -299,6 +310,7 @@ export default function AdminServicesPage() {
           bufferBeforeMinutes: created.bufferBeforeMinutes,
           bufferAfterMinutes: created.bufferAfterMinutes,
           description: created.description ?? '',
+          isDefault: created.isDefault,
           isActive: created.isActive,
         });
         void loadLinks(created);
@@ -516,7 +528,10 @@ export default function AdminServicesPage() {
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="truncate font-semibold text-text-primary">{s.name}</p>
+              <div className="flex items-center gap-2">
+                <p className="truncate font-semibold text-text-primary">{s.name}</p>
+                {s.isDefault ? <Badge variant="default">Default</Badge> : null}
+              </div>
               <p className="mt-0.5 text-xs text-text-secondary">
                 {s.durationMinutes} min - {formatServicePrice(s.priceCents, bookingCurrency)}
               </p>
@@ -542,13 +557,16 @@ export default function AdminServicesPage() {
         onClick={() => openEdit(s)}
       >
         <td className="px-4 py-3 align-top">
-          <p className="font-semibold text-text-primary">{s.name}</p>
+          <div className="flex items-center gap-2">
+            <p className="font-semibold text-text-primary">{s.name}</p>
+            {s.isDefault ? <Badge variant="default">Default</Badge> : null}
+          </div>
           {s.description && <p className="mt-0.5 max-w-[340px] truncate text-xs text-text-secondary">{s.description}</p>}
         </td>
         <td className="px-4 py-3 text-text-primary">{s.durationMinutes} min</td>
         <td className="px-4 py-3 text-text-primary">{formatServicePrice(s.priceCents, bookingCurrency)}</td>
         <td className="px-4 py-3 text-text-secondary">
-          <span className="block truncate font-mono text-xs">{s.productKey || '—'}</span>
+          <span className="block truncate font-mono text-xs">{s.productKey || '-'}</span>
         </td>
         <td className="px-4 py-3">
           <CatalogStatusBadge isActive={s.isActive} archivedAt={s.archivedAt} />
@@ -646,7 +664,7 @@ export default function AdminServicesPage() {
             searchPlaceholder="Search by name, integration ID, or description..."
             showArchived={showArchived}
             onShowArchivedChange={setShowArchived}
-            summary={`${totalServicesCount} service${totalServicesCount === 1 ? '' : 's'}${showArchived && archivedCount > 0 ? ` · ${archivedCount} archived` : ''}`}
+            summary={`${totalServicesCount} service${totalServicesCount === 1 ? '' : 's'}${showArchived && archivedCount > 0 ? ` - ${archivedCount} archived` : ''}`}
             filters={[
               {
                 id: 'services-status',
@@ -822,6 +840,18 @@ export default function AdminServicesPage() {
                   onCheckedChange={(isActive) => setForm({ ...form, isActive })}
                 />
               </div>
+              <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-surface-subtle px-4 py-3 dark:border-slate-800">
+                <div>
+                  <p className="text-sm font-semibold text-text-primary">Default service</p>
+                  <p className="text-xs text-text-secondary">
+                    Auto-assign this service to each newly created provider.
+                  </p>
+                </div>
+                <Switch
+                  checked={form.isDefault}
+                  onCheckedChange={(isDefault) => setForm({ ...form, isDefault })}
+                />
+              </div>
 
               {editing ? (
                 (() => {
@@ -929,6 +959,3 @@ export default function AdminServicesPage() {
     </PageTransition>
   );
 }
-
-
-
