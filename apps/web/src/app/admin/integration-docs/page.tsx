@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { AdminBookAppointmentHeadingButton } from '@/components/appointments/AdminBookAppointmentHeadingButton';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { IntegrationGuide, IntegrationGuideHeader } from '@/components/admin/IntegrationGuide';
 import { useStaffSession } from '@/lib/useStaffSession';
@@ -24,8 +25,9 @@ export default function AdminIntegrationDocsPage() {
     <PageTransition>
       <div className="-mx-4 -mt-4 sm:-mx-8 sm:-mt-8">
         <div className="mb-4 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-          <div className="px-4 py-3 sm:px-5 lg:px-6">
+          <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:px-6">
             <IntegrationGuideHeader />
+            <AdminBookAppointmentHeadingButton />
           </div>
         </div>
         <div className="px-4 pb-6 sm:px-5 lg:px-6">

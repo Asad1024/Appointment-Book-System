@@ -80,13 +80,13 @@ export class IntegrationsController {
   ) {
     const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
     if (error || !code || !state) {
-      return res.redirect(`${webUrl}/provider/dashboard?calendar=error`);
+      return res.redirect(`${webUrl}/provider/integrations?calendar=error`);
     }
     try {
       await this.google.handleCallback(code, state);
-      return res.redirect(`${webUrl}/provider/dashboard?calendar=connected`);
+      return res.redirect(`${webUrl}/provider/integrations?calendar=connected`);
     } catch {
-      return res.redirect(`${webUrl}/provider/dashboard?calendar=error`);
+      return res.redirect(`${webUrl}/provider/integrations?calendar=error`);
     }
   }
 

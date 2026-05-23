@@ -21,7 +21,7 @@ export function ProviderLayout({
   onLogout,
 }: {
   children: React.ReactNode;
-  user: { name: string; email: string };
+  user: { name: string; email: string; avatarUrl?: string | null };
   onLogout: () => void;
 }) {
   const pathname = usePathname();
@@ -80,6 +80,7 @@ export function ProviderLayout({
             <div className="flex items-center gap-3">
               <InitialsAvatar
                 name={user.name}
+                src={user.avatarUrl}
                 className="h-9 w-9 bg-slate-100 text-xs text-slate-700 dark:bg-slate-800/90 dark:text-slate-100"
               />
               <div className="min-w-0 flex-1">

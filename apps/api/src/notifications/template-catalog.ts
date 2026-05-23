@@ -154,7 +154,7 @@ export const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
     systemDefault: {
       subject: null,
       body:
-        'Booking confirmed\n\nHi {{customer_name}},\nYour appointment has been successfully confirmed.\n\nService: {{service_name}}\nProvider: {{provider_name}}\nLocation: {{location_name}}\nWhen: {{appointment_when_plain}}\n\nManage booking: {{manage_url}}\nAdd to calendar: {{google_calendar_url}}\n\nNeed help? Reply to this message.',
+        '*Booking confirmed*\n\nHi {{customer_name}},\nYour appointment has been successfully confirmed.\n\n*Service:* {{service_name}}\n*Provider:* {{provider_name}}\n*Location:* {{location_name}}\n*When:* {{appointment_when_plain}}\n\n*Manage booking*\n{{manage_url}}\n\n*Add to calendar*\n{{ics_download_url}}\n\nNeed help? Reply to this message.',
     },
   }),
   definition({
@@ -167,7 +167,7 @@ export const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
     systemDefault: {
       subject: null,
       body:
-        'Appointment reminder ({{reminder_label}})\n\nHi {{customer_name}},\nFriendly reminder: your appointment is {{reminder_label}}.\n\nService: {{service_name}}\nProvider: {{provider_name}}\nLocation: {{location_name}}\nWhen: {{appointment_when_plain}}\n\nManage booking: {{manage_url}}\nAdd to calendar: {{google_calendar_url}}\n\nNeed help? Reply to this message.',
+        '*Appointment reminder ({{reminder_label}})*\n\nHi {{customer_name}},\nFriendly reminder: your appointment is {{reminder_label}}.\n\n*Service:* {{service_name}}\n*Provider:* {{provider_name}}\n*Location:* {{location_name}}\n*When:* {{appointment_when_plain}}\n\n*Manage booking*\n{{manage_url}}\n\n*Add to calendar*\n{{ics_download_url}}\n\nNeed help? Reply to this message.',
     },
   }),
   definition({
@@ -180,7 +180,7 @@ export const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
     systemDefault: {
       subject: null,
       body:
-        'Appointment rescheduled\n\nHi {{customer_name}},\nYour appointment details were updated.\n\nService: {{service_name}}\nProvider: {{provider_name}}\nLocation: {{location_name}}\nWhen: {{appointment_when_plain}}\n\nManage booking: {{manage_url}}\nAdd to calendar: {{google_calendar_url}}\n\nNeed help? Reply to this message.',
+        '*Appointment rescheduled*\n\nHi {{customer_name}},\nYour appointment details were updated.\n\n*Service:* {{service_name}}\n*Provider:* {{provider_name}}\n*Location:* {{location_name}}\n*When:* {{appointment_when_plain}}\n\n*Manage booking*\n{{manage_url}}\n\n*Add to calendar*\n{{ics_download_url}}\n\nNeed help? Reply to this message.',
     },
   }),
   definition({
@@ -193,7 +193,7 @@ export const TEMPLATE_DEFINITIONS: TemplateDefinition[] = [
     systemDefault: {
       subject: null,
       body:
-        'Appointment cancelled\n\nHi {{customer_name}},\nYour appointment has been cancelled.\n\nService: {{service_name}}\nProvider: {{provider_name}}\nLocation: {{location_name}}\nWhen: {{appointment_when_plain}}\n\nIf this cancellation is unexpected, please contact support.',
+        '*Appointment cancelled*\n\nHi {{customer_name}},\nYour appointment has been cancelled.\n\n*Service:* {{service_name}}\n*Provider:* {{provider_name}}\n*Location:* {{location_name}}\n*When:* {{appointment_when_plain}}\n\nIf this cancellation is unexpected, please contact support.',
     },
   }),
 ];

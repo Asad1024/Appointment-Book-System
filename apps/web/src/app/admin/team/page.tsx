@@ -16,7 +16,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiAuth } from '@/lib/api';
+import { handlePlanLimitError } from '@/lib/plan-limit';
 import { useAdminLocation } from '@/lib/admin-location-context';
+import { AdminBookAppointmentHeadingButton } from '@/components/appointments/AdminBookAppointmentHeadingButton';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { SlideOver } from '@/components/admin/SlideOver';
 import { ResourceListToolbar } from '@/components/admin/ResourceListToolbar';
@@ -209,6 +211,7 @@ export default function AdminTeamPage() {
       setActiveTab('invites');
       await loadAll();
     } catch (err) {
+      if (handlePlanLimitError(err)) return;
       toast.error(err instanceof Error ? err.message : 'Invite failed');
     } finally {
       setSubmitting(false);
@@ -237,6 +240,7 @@ export default function AdminTeamPage() {
       toast.success(m.isActive ? 'Member deactivated' : 'Member activated');
       await loadAll();
     } catch (e) {
+      if (handlePlanLimitError(e)) return;
       toast.error(e instanceof Error ? e.message : 'Update failed');
     }
   }
@@ -533,47 +537,69 @@ export default function AdminTeamPage() {
                 Invite staff, assign roles, and manage who can access your workspace
               </p>
             </div>
-            <Button onClick={openInvitePanel} disabled={!locationId}>
-              <UserPlus className="mr-2 h-4 w-4" />
-              Invite member
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <AdminBookAppointmentHeadingButton />
+              <Button onClick={openInvitePanel} disabled={!locationId}>
+                <UserPlus className="mr-2 h-4 w-4" />
+                Invite member
+              </Button>
+            </div>
           </div>
         </div>
 
         <div className="px-4 pb-6 sm:px-5 lg:px-6">
-          <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <Card className="border-slate-200 shadow-sm dark:border-slate-800">
+          <div className="mb-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-                  Total members
-                </p>
-                <p className="mt-2 flex items-center gap-2 text-3xl font-semibold text-text-primary">
-                  <Users className="h-5 w-5 text-brand-500" />
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+                      Total members
+                    </p>
+                    <p className="mt-1 text-xs text-text-muted">All users with staff access</p>
+                  </div>
+                  <div className="shrink-0 rounded-xl border border-brand-100 bg-brand-50 p-2.5 text-brand-700 dark:border-brand-700 dark:bg-brand-900/35 dark:text-brand-200">
+                    <Users className="h-5 w-5" />
+                  </div>
+                </div>
+                <p className="mt-4 font-display text-3xl font-bold tabular-nums text-text-primary">
                   {totalMembersCount}
                 </p>
               </CardBody>
             </Card>
-            <Card className="border-slate-200 shadow-sm dark:border-slate-800">
+            <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-                  Pending invites
-                </p>
-                <p className="mt-2 flex items-center gap-2 text-3xl font-semibold text-text-primary">
-                  <Mail className="h-5 w-5 text-amber-500" />
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+                      Pending invites
+                    </p>
+                    <p className="mt-1 text-xs text-text-muted">Awaiting acceptance</p>
+                  </div>
+                  <div className="shrink-0 rounded-xl border border-amber-100 bg-amber-50 p-2.5 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
+                    <Mail className="h-5 w-5" />
+                  </div>
+                </div>
+                <p className="mt-4 font-display text-3xl font-bold tabular-nums text-amber-700">
                   {pendingInvitesCount}
                 </p>
-                <p className="mt-1 text-xs text-text-muted">Awaiting acceptance</p>
               </CardBody>
             </Card>
-            <Card className="border-slate-200 shadow-sm dark:border-slate-800">
+            <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Active</p>
-                <p className="mt-2 flex items-center gap-2 text-3xl font-semibold text-text-primary">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Active</p>
+                    <p className="mt-1 text-xs text-text-muted">
+                      {totalMembersCount - activeMembersCount} inactive
+                    </p>
+                  </div>
+                  <div className="shrink-0 rounded-xl border border-emerald-100 bg-emerald-50 p-2.5 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                </div>
+                <p className="mt-4 font-display text-3xl font-bold tabular-nums text-emerald-700">
                   {activeMembersCount}
-                </p>
-                <p className="mt-1 text-xs text-text-muted">
-                  {totalMembersCount - activeMembersCount} inactive
                 </p>
               </CardBody>
             </Card>

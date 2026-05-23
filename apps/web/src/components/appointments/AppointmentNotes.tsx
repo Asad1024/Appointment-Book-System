@@ -185,7 +185,7 @@ export function AppointmentNotes({
 
         <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
           <Textarea
-            placeholder="Add an internal note... (only visible to staff)"
+            placeholder="Add an internal note for your team (visible to staff only)"
             value={draft}
             onChange={(e) => setDraft(e.target.value.slice(0, NOTE_MAX))}
             rows={3}

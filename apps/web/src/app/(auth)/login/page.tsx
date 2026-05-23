@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
@@ -16,6 +16,8 @@ import { Label } from '@/components/ui/label';
 import { PasswordField } from '@/components/shared/PasswordField';
 import { OrgRequiredGate } from '@/components/booking/OrgRequiredGate';
 import { resolveOrgContext } from '@/lib/resolve-org-slug';
+import { GoogleAuthButton } from '@/components/auth/GoogleAuthButton';
+import { buildGoogleAuthStartUrl } from '@/lib/google-auth';
 
 const DEV_SUPER_ADMIN_EMAIL =
   process.env.NEXT_PUBLIC_DEV_SUPER_ADMIN_EMAIL ?? 'admin@sparkai.com';
@@ -24,6 +26,7 @@ const DEV_SUPER_ADMIN_PASSWORD =
 const showDevAdminLogin =
   process.env.NODE_ENV === 'development' ||
   process.env.NEXT_PUBLIC_DEV_ADMIN_LOGIN === 'true';
+const GOOGLE_ERROR_TOAST_ID = 'google-auth-login-error';
 
 type LoginRole = 'customer' | 'provider' | 'admin' | 'super_admin';
 
@@ -53,9 +56,9 @@ function parseLoginRole(raw: string | null, fallbackRole: LoginRole): LoginRole 
 function roleTitle(role: LoginRole) {
   if (role === 'customer') return 'Customer sign in';
   if (role === 'provider') return 'Staff sign in';
-  if (role === 'admin') return 'Workspace sign in';
+  if (role === 'admin') return 'Admin Sign in';
   if (role === 'super_admin') return 'Platform sign in';
-  return 'Workspace sign in';
+  return 'Admin Sign in';
 }
 
 function roleSubtitle(role: LoginRole) {
@@ -66,7 +69,7 @@ function roleSubtitle(role: LoginRole) {
     return 'Staff members can access schedules here';
   }
   if (role === 'admin') {
-    return 'Organization and platform administrator access';
+    return 'Organization administrator access';
   }
   if (role === 'super_admin') {
     return 'Platform-level access for support and operations';
@@ -79,6 +82,7 @@ function LoginPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const next = searchParams.get('next');
+  const searchParamString = searchParams.toString();
   const orgContext = resolveOrgContext(searchParams);
   const org = orgContext.slug || null;
   const orgFromQuery = orgContext.source === 'query' ? orgContext.slug : '';
@@ -113,6 +117,25 @@ function LoginPageContent() {
       : isPlatformFlow
         ? '/forgot-password?role=super_admin'
         : '/forgot-password?role=admin';
+  const failurePath = `${pathname}${searchParamString ? `?${searchParamString}` : ''}`;
+  const googleHref = buildGoogleAuthStartUrl({
+    intent: isCustomerFlow ? 'customer' : 'staff',
+    role: isCustomerFlow
+      ? 'customer'
+      : isProviderFlow
+        ? 'provider'
+        : isPlatformFlow
+          ? 'super_admin'
+          : 'admin',
+    org: isCustomerFlow ? org ?? undefined : undefined,
+    next,
+    failurePath,
+  });
+  const googleError = searchParams.get('google');
+  const googleMessage = searchParams.get('message');
+  const nextParam = next ? `?next=${encodeURIComponent(next)}` : '';
+  const adminLoginTabHref = `/login${nextParam}`;
+  const staffLoginTabHref = `/staff/login${nextParam}`;
   const {
     register,
     handleSubmit,
@@ -120,11 +143,20 @@ function LoginPageContent() {
   } = useForm<LoginForm>({ resolver: zodResolver(loginSchema) });
   const [devSuperLoading, setDevSuperLoading] = useState(false);
 
-  async function performLogin(values: LoginForm) {
+  useEffect(() => {
+    if (googleError === 'error') {
+      toast.error(googleMessage || 'Google sign-in failed', { id: GOOGLE_ERROR_TOAST_ID });
+    }
+  }, [googleError, googleMessage]);
+
+  async function performLogin(values: LoginForm, expectedRole: LoginRole = role) {
     await ensureCsrf();
     const data = await api<{ user: AuthUser }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify(values),
+      body: JSON.stringify({
+        ...values,
+        expectedRole,
+      }),
     });
     toast.success('Welcome back!');
     router.replace(resolvePostLoginPath(data.user.role, next));
@@ -142,7 +174,10 @@ function LoginPageContent() {
   async function onDevSuperAdminLogin() {
     setDevSuperLoading(true);
     try {
-      await performLogin({ email: DEV_SUPER_ADMIN_EMAIL, password: DEV_SUPER_ADMIN_PASSWORD });
+      await performLogin(
+        { email: DEV_SUPER_ADMIN_EMAIL, password: DEV_SUPER_ADMIN_PASSWORD },
+        'super_admin',
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Super admin login failed');
     } finally {
@@ -160,22 +195,31 @@ function LoginPageContent() {
       subtitle={roleSubtitle(role)}
     >
       {role === 'admin' || isProviderFlow ? (
-        <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-text-secondary dark:border-slate-700 dark:bg-slate-900/60">
-          {isProviderFlow ? (
-            <>
-              Need administrator access?{' '}
-              <Link href="/login" className="font-medium text-brand-600 hover:underline">
-                Use workspace sign in
-              </Link>
-            </>
-          ) : (
-            <>
-              Need staff access?{' '}
-              <Link href="/staff/login" className="font-medium text-brand-600 hover:underline">
-                Use staff sign in
-              </Link>
-            </>
-          )}
+        <div className="mb-4 border-b border-slate-200 dark:border-slate-700">
+          <div className="grid grid-cols-2">
+            <Link
+              href={adminLoginTabHref}
+              aria-current={role === 'admin' ? 'page' : undefined}
+              className={`border-b-2 px-2 py-3 text-center text-sm font-medium transition-colors ${
+                role === 'admin'
+                  ? 'border-brand-600 text-text-primary'
+                  : 'border-transparent text-text-muted hover:text-text-primary'
+              }`}
+            >
+              Admin Access
+            </Link>
+            <Link
+              href={staffLoginTabHref}
+              aria-current={isProviderFlow ? 'page' : undefined}
+              className={`border-b-2 px-2 py-3 text-center text-sm font-medium transition-colors ${
+                isProviderFlow
+                  ? 'border-brand-600 text-text-primary'
+                  : 'border-transparent text-text-muted hover:text-text-primary'
+              }`}
+            >
+              Staff Access
+            </Link>
+          </div>
         </div>
       ) : null}
 
@@ -197,21 +241,40 @@ function LoginPageContent() {
             Forgot password?
           </Link>
         </div>
-        <Button type="submit" className="w-full" loading={isSubmitting}>
-          Sign in
-        </Button>
         {showDevAdminLogin && !isCustomerFlow && !isProviderFlow ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            loading={devSuperLoading}
-            disabled={isSubmitting}
-            onClick={() => void onDevSuperAdminLogin()}
-          >
-            Platform super admin (dev)
+          <div className="grid grid-cols-2 gap-3">
+            <Button type="submit" className="w-full" loading={isSubmitting}>
+              Sign in
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full text-xs"
+              loading={devSuperLoading}
+              disabled={isSubmitting}
+              onClick={() => void onDevSuperAdminLogin()}
+            >
+              Super Admin
+            </Button>
+          </div>
+        ) : (
+          <Button type="submit" className="w-full" loading={isSubmitting}>
+            Sign in
           </Button>
-        ) : null}
+        )}
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-slate-200 dark:border-slate-700" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-white px-2 text-text-muted dark:bg-slate-950">or</span>
+          </div>
+        </div>
+        <GoogleAuthButton
+          label="Continue with Google"
+          href={googleHref}
+          disabled={isSubmitting || devSuperLoading}
+        />
       </form>
       {role === 'admin' ? (
         <p className="mt-4 text-center text-sm text-text-muted">
@@ -239,11 +302,6 @@ function LoginPageContent() {
             </Link>
           </p>
         </>
-      ) : null}
-      {isProviderFlow ? (
-        <p className="mt-4 text-center text-sm text-text-muted">
-          Staff accounts are invite-only. Use your invite link first if this is your first login.
-        </p>
       ) : null}
       {isPlatformFlow ? (
         <p className="mt-4 text-center text-sm text-text-muted">

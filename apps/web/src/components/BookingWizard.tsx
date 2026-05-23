@@ -40,6 +40,7 @@ import { formatMoneyFromCents, normalizeBookingCurrency } from '@/lib/currency';
 import { ReminderPreferencesEditor } from '@/components/shared/ReminderPreferencesEditor';
 import {
   DEFAULT_REMINDER_OFFSETS_MINUTES,
+  STAFF_ROLES,
   filterReminderOffsetsToAllowed,
   getApplicableReminderOffsets,
   pickReminderSelectionForAppointment,
@@ -145,11 +146,12 @@ export function BookingWizard({ params }: { params: BookingParams }) {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [timezone, setTimezone] = useState('UTC');
-  const [customerTimezone, setCustomerTimezone] = useState('UTC');
+  const [customerTimezone, setCustomerTimezone] = useState(() => resolveInitialCustomerTimezone());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [slotUnavailable, setSlotUnavailable] = useState(false);
   const [confirmed, setConfirmed] = useState<Record<string, unknown> | null>(null);
+  const [hasCustomerSession, setHasCustomerSession] = useState(false);
 
   const [locationId, setLocationId] = useState('');
   const [serviceId, setServiceId] = useState('');
@@ -226,16 +228,9 @@ export function BookingWizard({ params }: { params: BookingParams }) {
         if (saved.providerId) setProviderId(String(saved.providerId));
         if (saved.selectedDate) setSelectedDate(String(saved.selectedDate));
         if (saved.startUtc) setStartUtc(String(saved.startUtc));
-        if (saved.customerTimezone) {
-          setCustomerTimezone(String(saved.customerTimezone));
-        } else {
-          setCustomerTimezone(resolveInitialCustomerTimezone('UTC'));
-        }
-      } else {
-        setCustomerTimezone(resolveInitialCustomerTimezone('UTC'));
       }
     } catch {
-      setCustomerTimezone(resolveInitialCustomerTimezone('UTC'));
+      // Ignore invalid session state and continue with default timezone.
     }
 
     const prefillName = params.customerName?.trim() ?? '';
@@ -260,6 +255,8 @@ export function BookingWizard({ params }: { params: BookingParams }) {
 
     fetchMe()
       .then((u) => {
+        const isStaffMember = STAFF_ROLES.includes(u.role as (typeof STAFF_ROLES)[number]);
+        setHasCustomerSession(!isStaffMember);
         if (hasUrlPrefill) return;
         setCustomerEmail(u.email);
         setCustomerName(u.name);
@@ -276,7 +273,9 @@ export function BookingWizard({ params }: { params: BookingParams }) {
           }
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        setHasCustomerSession(false);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -294,11 +293,10 @@ export function BookingWizard({ params }: { params: BookingParams }) {
         providerId,
         selectedDate,
         startUtc,
-        customerTimezone,
         locationId,
       }),
     );
-  }, [step, serviceId, providerId, selectedDate, startUtc, customerTimezone, locationId]);
+  }, [step, serviceId, providerId, selectedDate, startUtc, locationId]);
 
   useEffect(() => {
     if (customerTimezone && customerTimezone !== 'UTC') {
@@ -697,10 +695,10 @@ export function BookingWizard({ params }: { params: BookingParams }) {
               : 'Check your email for confirmation details.'}
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
-            <Link href={`/manage/${confirmed.manageToken as string}`}>
+            <Link href={`/manage/${confirmed.manageToken as string}?partner=1`}>
               <Button style={{ backgroundColor: primaryColor }}>Manage appointment</Button>
             </Link>
-            {!params.embed && (
+            {!params.embed && hasCustomerSession && (
               <Link href="/account">
                 <Button variant="outline">My appointments</Button>
               </Link>

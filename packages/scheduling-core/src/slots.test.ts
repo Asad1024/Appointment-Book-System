@@ -49,6 +49,29 @@ describe('generateAvailableSlots', () => {
     const at10 = slots.find((s) => s.startUtc.includes('T10:00:00'));
     assert.equal(at10, undefined);
   });
+
+  it('treats end 00:00 as end-of-day for same-day windows', () => {
+    const slots = generateAvailableSlots({
+      timezone: 'UTC',
+      fromDate: '2026-06-06',
+      toDate: '2026-06-06',
+      weeklyRules: [{ dayOfWeek: 6, startTime: '09:00', endTime: '00:00' }],
+      blockedIntervals: [],
+      bookedIntervals: [],
+      serviceDurationMinutes: 30,
+      policy: {
+        leadTimeMinutes: 0,
+        bookingWindowDays: 90,
+        bufferBeforeMinutes: 0,
+        bufferAfterMinutes: 0,
+        slotIntervalMinutes: 30,
+      },
+    });
+
+    assert.ok(slots.length > 0);
+    const hasEveningSlot = slots.some((s) => s.startUtc === '2026-06-06T23:30:00.000Z');
+    assert.equal(hasEveningSlot, true);
+  });
 });
 
 describe('generateSlotGrid', () => {

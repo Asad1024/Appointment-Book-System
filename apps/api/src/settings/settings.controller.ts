@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@pkg/shared-types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -160,5 +160,14 @@ export class SettingsController {
     },
   ) {
     return this.settings.updateLocation(req.user.orgId, locationId, body);
+  }
+
+  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
+  @Delete('locations/:locationId')
+  removeLocation(
+    @Req() req: { user: { orgId: string } },
+    @Param('locationId') locationId: string,
+  ) {
+    return this.settings.removeLocation(req.user.orgId, locationId);
   }
 }

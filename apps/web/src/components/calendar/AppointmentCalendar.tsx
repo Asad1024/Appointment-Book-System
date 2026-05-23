@@ -74,6 +74,87 @@ const MONTH_CELL_MAX_VISIBLE = 3;
 const BOOKING_CARD_SHELL =
   'box-border rounded-l-none rounded-r-[14px] border border-[#a0dcbe] border-l-4 border-l-[#1d9e75] bg-white px-3 py-[10px] shadow-sm transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-md';
 
+type BookingTone = {
+  shell: string;
+  typeText: string;
+  timeText: string;
+  avatarBg: string;
+  avatarText: string;
+  nameText: string;
+  emptyText: string;
+};
+
+const STATUS_BOOKING_TONES: Record<string, BookingTone> = {
+  confirmed: {
+    shell: 'border-blue-200 border-l-blue-500 bg-blue-50/45',
+    typeText: 'text-blue-700',
+    timeText: 'text-blue-900',
+    avatarBg: 'bg-blue-100',
+    avatarText: 'text-blue-700',
+    nameText: 'text-blue-800',
+    emptyText: 'text-blue-500',
+  },
+  pending: {
+    shell: 'border-amber-200 border-l-amber-500 bg-amber-50/55',
+    typeText: 'text-amber-700',
+    timeText: 'text-amber-900',
+    avatarBg: 'bg-amber-100',
+    avatarText: 'text-amber-700',
+    nameText: 'text-amber-800',
+    emptyText: 'text-amber-500',
+  },
+  checked_in: {
+    shell: 'border-violet-200 border-l-violet-500 bg-violet-50/50',
+    typeText: 'text-violet-700',
+    timeText: 'text-violet-900',
+    avatarBg: 'bg-violet-100',
+    avatarText: 'text-violet-700',
+    nameText: 'text-violet-800',
+    emptyText: 'text-violet-500',
+  },
+  completed: {
+    shell: 'border-emerald-200 border-l-emerald-500 bg-emerald-50/45',
+    typeText: 'text-emerald-700',
+    timeText: 'text-emerald-900',
+    avatarBg: 'bg-emerald-100',
+    avatarText: 'text-emerald-700',
+    nameText: 'text-emerald-800',
+    emptyText: 'text-emerald-500',
+  },
+  cancelled: {
+    shell: 'border-red-200 border-l-red-500 bg-red-50/55',
+    typeText: 'text-red-700 line-through',
+    timeText: 'text-red-900 line-through',
+    avatarBg: 'bg-red-100',
+    avatarText: 'text-red-700',
+    nameText: 'text-red-800 line-through',
+    emptyText: 'text-red-500',
+  },
+  no_show: {
+    shell: 'border-rose-200 border-l-rose-500 bg-rose-50/55',
+    typeText: 'text-rose-700',
+    timeText: 'text-rose-900',
+    avatarBg: 'bg-rose-100',
+    avatarText: 'text-rose-700',
+    nameText: 'text-rose-800',
+    emptyText: 'text-rose-500',
+  },
+};
+
+const DEFAULT_BOOKING_TONE: BookingTone = {
+  shell: 'border-[#a0dcbe] border-l-[#1d9e75] bg-white',
+  typeText: 'text-[#1d9e75]',
+  timeText: 'text-[#085041]',
+  avatarBg: 'bg-[#e1f5ee]',
+  avatarText: 'text-[#0f6e56]',
+  nameText: 'text-[#0f6e56]',
+  emptyText: 'text-[#5dcaa5]',
+};
+
+function bookingToneForStatus(status: string): BookingTone {
+  return STATUS_BOOKING_TONES[status] ?? STATUS_BOOKING_TONES.confirmed;
+}
+
 function bookingCardTitle(appt: CalendarAppointment) {
   const type = appt.service?.name?.trim();
   return type || 'Booking';
@@ -94,9 +175,11 @@ function bookingCardInitials(name: string) {
 function BookingCardContent({
   appt,
   timezone,
+  tone,
 }: {
   appt: CalendarAppointment;
   timezone: string;
+  tone: BookingTone;
 }) {
   const clientName = appt.customer?.name?.trim() ?? '';
   const bookingType = appt.service?.name?.trim() ?? '';
@@ -107,28 +190,28 @@ function BookingCardContent({
 
   return (
     <div className="flex min-h-fit w-full flex-col gap-0.5">
-      <p className="line-clamp-2 break-words text-[10px] font-medium uppercase leading-snug tracking-[0.06em] text-[#1d9e75]">
+      <p className={cn('line-clamp-2 break-words text-[10px] font-medium uppercase leading-snug tracking-[0.06em]', tone.typeText)}>
         {typeLabel}
       </p>
-      <p className="shrink-0 whitespace-nowrap text-[13px] font-medium leading-tight text-[#085041]">
+      <p className={cn('shrink-0 whitespace-nowrap text-[13px] font-medium leading-tight', tone.timeText)}>
         {timeRange}
       </p>
       {hasName ? (
         <div className="mt-0.5 flex min-w-0 shrink-0 items-center gap-1.5">
           <span
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#e1f5ee] text-[9px] font-medium leading-none text-[#0f6e56]"
+            className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-medium leading-none', tone.avatarBg, tone.avatarText)}
             aria-hidden
           >
             {bookingCardInitials(clientName)}
           </span>
-          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-[#0f6e56]">
+          <span className={cn('min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs', tone.nameText)}>
             {clientName}
           </span>
         </div>
       ) : !hasType ? (
         <div className="mt-0.5 flex min-w-0 shrink-0 items-center gap-1.5">
-          <UserX className="h-3.5 w-3.5 shrink-0 text-[#5dcaa5]" aria-hidden />
-          <span className="text-xs italic text-[#5dcaa5]">No client</span>
+          <UserX className={cn('h-3.5 w-3.5 shrink-0', tone.emptyText)} aria-hidden />
+          <span className={cn('text-xs italic', tone.emptyText)}>No client</span>
         </div>
       ) : null}
     </div>
@@ -136,7 +219,22 @@ function BookingCardContent({
 }
 
 function monthChipClasses(status: string) {
-  return 'bg-emerald-500 text-white';
+  switch (status) {
+    case 'confirmed':
+      return 'bg-blue-500 text-white';
+    case 'pending':
+      return 'bg-amber-600 text-white';
+    case 'checked_in':
+      return 'bg-violet-500 text-white';
+    case 'completed':
+      return 'bg-emerald-500 text-white';
+    case 'cancelled':
+      return 'bg-red-500 text-white';
+    case 'no_show':
+      return 'bg-rose-500 text-white';
+    default:
+      return 'bg-slate-500 text-white';
+  }
 }
 
 function rangeContains(date: Date, start: Date, end: Date) {
@@ -178,8 +276,7 @@ export function AppointmentCalendar({
   onRangeChange,
 }: Props) {
   const [view, setView] = useState<CalendarView>(() => {
-    if (typeof window !== 'undefined' && window.innerWidth < 768) return 'day';
-    return 'week';
+    return 'month';
   });
   const [anchor, setAnchor] = useState(() => new Date());
   const [selected, setSelected] = useState<CalendarAppointment | null>(null);
@@ -516,6 +613,9 @@ function WeekDayBoard({
                     b.customer?.name?.trim() ? ` · ${b.customer.name.trim()}` : ''
                   }`;
                   const slotHeight = `calc(${b.heightPct}% - ${CALENDAR_CARD_MARGIN_PX}px)`;
+                  const tone = colorMode === 'status'
+                    ? bookingToneForStatus(b.status)
+                    : DEFAULT_BOOKING_TONE;
 
                   return (
                     <button
@@ -526,6 +626,7 @@ function WeekDayBoard({
                       className={cn(
                         'absolute z-10 flex min-h-fit flex-col text-left',
                         BOOKING_CARD_SHELL,
+                        tone.shell,
                       )}
                       style={{
                         top: `${b.topPct}%`,
@@ -536,7 +637,7 @@ function WeekDayBoard({
                         marginBottom: CALENDAR_CARD_MARGIN_PX,
                       }}
                     >
-                      <BookingCardContent appt={b} timezone={timezone} />
+                      <BookingCardContent appt={b} timezone={timezone} tone={tone} />
                     </button>
                   );
                 })}

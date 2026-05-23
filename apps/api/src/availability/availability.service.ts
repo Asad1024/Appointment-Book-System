@@ -4,6 +4,7 @@ import { generateSlotGrid } from '@pkg/scheduling-core';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { AppointmentStatus } from '@pkg/shared-types';
+import { BillingService } from '../billing/billing.service';
 
 /** Appointments that block time on the public booking grid. */
 const SLOT_OCCUPYING_STATUSES: AppointmentStatus[] = [
@@ -11,6 +12,8 @@ const SLOT_OCCUPYING_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.CONFIRMED,
   AppointmentStatus.CHECKED_IN,
 ];
+/** Google Meet style rolling notice: earliest slot starts at least 5 minutes from now. */
+const BOOKING_MIN_NOTICE_MINUTES = 5;
 
 type SlotResult = {
   startUtc: string;
@@ -24,6 +27,7 @@ export class AvailabilityService {
   constructor(
     private prisma: PrismaService,
     private catalog: CatalogService,
+    private billing: BillingService,
   ) {}
 
   private async slotsForProvider(params: {
@@ -93,7 +97,7 @@ export class AvailabilityService {
       })),
       serviceDurationMinutes: service.durationMinutes,
       policy: {
-        leadTimeMinutes: location.leadTimeMinutes,
+        leadTimeMinutes: BOOKING_MIN_NOTICE_MINUTES,
         bookingWindowDays: location.bookingWindowDays,
         bufferBeforeMinutes: service.bufferBeforeMinutes,
         bufferAfterMinutes: service.bufferAfterMinutes,
@@ -118,6 +122,7 @@ export class AvailabilityService {
     excludeAppointmentId?: string;
   }) {
     const location = await this.catalog.getLocation(params.locationId);
+    await this.billing.assertLocationEnabled(location.organizationId, params.locationId);
 
     if (params.providerId === 'any') {
       const providers = await this.catalog.listProviders(params.locationId, params.serviceId);

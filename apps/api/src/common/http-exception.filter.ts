@@ -26,11 +26,20 @@ export class GlobalHttpExceptionFilter implements ExceptionFilter {
       message = (raw as { message: string | string[] }).message;
     }
 
-    res.status(status).json({
+    const payload: Record<string, unknown> = {
       statusCode: status,
       message,
       timestamp: new Date().toISOString(),
       path: req.url,
-    });
+    };
+
+    if (raw && typeof raw === 'object') {
+      for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (key === 'message' || key === 'statusCode' || key === 'error') continue;
+        payload[key] = value;
+      }
+    }
+
+    res.status(status).json(payload);
   }
 }

@@ -9,7 +9,6 @@ import {
   Layers3,
   Mail,
   MapPin,
-  Link2,
   MoreHorizontal,
   Pause,
   Pencil,
@@ -21,9 +20,11 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiAuth } from '@/lib/api';
+import { handlePlanLimitError } from '@/lib/plan-limit';
 import { bookingLinkSourceFromRole } from '@/lib/booking-link-attribution';
 import { useAdminLocation } from '@/lib/admin-location-context';
 import { useStaffSession } from '@/lib/useStaffSession';
+import { AdminBookAppointmentHeadingButton } from '@/components/appointments/AdminBookAppointmentHeadingButton';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { SlideOver } from '@/components/admin/SlideOver';
 import {
@@ -286,6 +287,7 @@ export default function AdminProvidersPage() {
         await load();
       }
     } catch (e) {
+      if (handlePlanLimitError(e)) return;
       toast.error(e instanceof Error ? e.message : 'Save failed');
     } finally {
       setSaving(false);
@@ -407,6 +409,7 @@ export default function AdminProvidersPage() {
       }
       await load();
     } catch (e) {
+      if (handlePlanLimitError(e)) return;
       toast.error(e instanceof Error ? e.message : 'Failed to resend invite email');
     } finally {
       setResendingInvite(false);
@@ -435,19 +438,6 @@ export default function AdminProvidersPage() {
           </Button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-48 rounded-xl border border-slate-200 p-2 shadow-lg dark:border-slate-700">
-          {!p.archivedAt && (
-            <button
-              type="button"
-              className={menuItemClass}
-              onClick={() => {
-                setOpenMenuId(null);
-                openBookingLink(p.id);
-              }}
-            >
-              <Link2 className={iconClass} />
-              Booking link
-            </button>
-          )}
           {!p.archivedAt && (
             <Link
               href={`/admin/providers/${p.id}/availability`}
@@ -659,10 +649,7 @@ export default function AdminProvidersPage() {
               <p className="mt-1 text-sm text-text-secondary">Your team members who deliver services</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => openBookingLink()} disabled={!locationId}>
-                <Link2 className="mr-2 h-4 w-4" />
-                Booking links
-              </Button>
+              <AdminBookAppointmentHeadingButton />
               <Button onClick={openNew}>
                 <Plus className="mr-2 h-4 w-4" />
                 New provider
@@ -672,33 +659,51 @@ export default function AdminProvidersPage() {
         </div>
 
         <div className="px-4 pb-6 sm:px-5 lg:px-6">
-          <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <Card className="border-slate-200 shadow-sm dark:border-slate-800">
+          <div className="mb-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Total providers</p>
-                <p className="mt-2 flex items-center gap-2 text-3xl font-semibold text-text-primary">
-                  <Layers3 className="h-5 w-5 text-brand-500" />
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Total providers</p>
+                    <p className="mt-1 text-xs text-text-muted">All team providers</p>
+                  </div>
+                  <div className="shrink-0 rounded-xl border border-brand-100 bg-brand-50 p-2.5 text-brand-700 dark:border-brand-700 dark:bg-brand-900/35 dark:text-brand-200">
+                    <Layers3 className="h-5 w-5" />
+                  </div>
+                </div>
+                <p className="mt-4 font-display text-3xl font-bold tabular-nums text-text-primary">
                   {totalProvidersCount}
                 </p>
               </CardBody>
             </Card>
-            <Card className="border-slate-200 shadow-sm dark:border-slate-800">
+            <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Active</p>
-                <p className="mt-2 flex items-center gap-2 text-3xl font-semibold text-text-primary">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Active</p>
+                    <p className="mt-1 text-xs text-text-muted">{totalProvidersCount - bookableCount} paused</p>
+                  </div>
+                  <div className="shrink-0 rounded-xl border border-emerald-100 bg-emerald-50 p-2.5 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                </div>
+                <p className="mt-4 font-display text-3xl font-bold tabular-nums text-emerald-700">
                   {bookableCount}
-                </p>
-                <p className="mt-1 text-xs text-text-muted">
-                  {totalProvidersCount - bookableCount} paused
                 </p>
               </CardBody>
             </Card>
-            <Card className="border-slate-200 shadow-sm dark:border-slate-800">
+            <Card className="border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">With email</p>
-                <p className="mt-2 flex items-center gap-2 text-3xl font-semibold text-text-primary">
-                  <Mail className="h-5 w-5 text-emerald-500" />
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">With email</p>
+                    <p className="mt-1 text-xs text-text-muted">Can receive invite and alerts</p>
+                  </div>
+                  <div className="shrink-0 rounded-xl border border-sky-100 bg-sky-50 p-2.5 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-200">
+                    <Mail className="h-5 w-5" />
+                  </div>
+                </div>
+                <p className="mt-4 font-display text-3xl font-bold tabular-nums text-sky-700">
                   {withEmailCount}
                 </p>
               </CardBody>

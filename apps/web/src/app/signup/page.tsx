@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
@@ -15,6 +16,9 @@ import { PasswordField } from '@/components/shared/PasswordField';
 import { PasswordStrength } from '@/components/shared/PasswordStrength';
 import { TimezoneSelect } from '@/components/shared/TimezoneSelect';
 import { PLATFORM } from '@/lib/brand';
+import { GoogleAuthButton } from '@/components/auth/GoogleAuthButton';
+import { buildGoogleAuthStartUrl } from '@/lib/google-auth';
+import { cn } from '@/lib/utils';
 
 type SignupResponse = {
   requiresEmailVerification: boolean;
@@ -24,9 +28,23 @@ type SignupResponse = {
 };
 
 const DEFAULT_SIGNUP_TIMEZONE = 'Asia/Dubai';
+const GOOGLE_ERROR_TOAST_ID = 'google-auth-signup-error';
 
 export default function BusinessSignupPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const googlePrefillToken = search.get('google_prefill');
+  const searchParamString = useMemo(() => {
+    const params = new URLSearchParams(search.toString());
+    params.delete('google_prefill');
+    params.delete('google');
+    params.delete('message');
+    return params.toString();
+  }, [search]);
+  const failurePath = `${pathname}${searchParamString ? `?${searchParamString}` : ''}`;
+  const [googlePrefillMode, setGooglePrefillMode] = useState(Boolean(googlePrefillToken));
+  const [prefillLoading, setPrefillLoading] = useState(Boolean(googlePrefillToken));
   const {
     register,
     handleSubmit,
@@ -39,7 +57,49 @@ export default function BusinessSignupPage() {
   });
 
   const password = watch('password') ?? '';
+  const companyName = watch('companyName') ?? '';
+  const adminName = watch('adminName') ?? '';
   const timezone = watch('timezone') ?? DEFAULT_SIGNUP_TIMEZONE;
+  const googleError = search.get('google');
+  const googleMessage = search.get('message');
+
+  useEffect(() => {
+    if (googleError === 'error') {
+      toast.error(googleMessage || 'Google sign-up failed', { id: GOOGLE_ERROR_TOAST_ID });
+    }
+  }, [googleError, googleMessage]);
+
+  useEffect(() => {
+    if (!googlePrefillToken) {
+      setGooglePrefillMode(false);
+      setPrefillLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPrefillLoading(true);
+    api<{ email: string; name: string }>(
+      `/auth/google/signup-prefill?token=${encodeURIComponent(googlePrefillToken)}`,
+    )
+      .then((data) => {
+        if (cancelled) return;
+        setValue('email', data.email, { shouldValidate: true, shouldDirty: false });
+        setValue('adminName', data.name, { shouldValidate: true, shouldDirty: false });
+        setGooglePrefillMode(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        toast.error(err instanceof Error ? err.message : 'Could not load Google profile');
+        setGooglePrefillMode(false);
+      })
+      .finally(() => {
+        if (!cancelled) setPrefillLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [googlePrefillToken, setValue]);
 
   async function onSubmit(values: BusinessSignupForm) {
     try {
@@ -56,12 +116,24 @@ export default function BusinessSignupPage() {
     }
   }
 
+  function onGoogleSignup() {
+    const url = buildGoogleAuthStartUrl({
+      intent: 'business_signup',
+      role: 'admin',
+      companyName: companyName.trim() || undefined,
+      adminName: adminName.trim() || undefined,
+      timezone,
+      failurePath,
+    });
+    window.location.assign(url);
+  }
+
   return (
     <AuthShell
       title="Start your business"
       subtitle={`Create your ${PLATFORM.name} workspace — admin portal, booking link, and team scheduling`}
     >
-      <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
+      <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
         <input type="hidden" {...register('timezone')} />
         <div>
           <Label htmlFor="companyName">Company name</Label>
@@ -77,7 +149,21 @@ export default function BusinessSignupPage() {
         </div>
         <div>
           <Label htmlFor="email">Work email</Label>
-          <Input id="email" type="email" autoComplete="email" {...register('email')} />
+          <Input
+            id="email"
+            type="email"
+            autoComplete="email"
+            readOnly={googlePrefillMode}
+            className={cn(
+              googlePrefillMode ? 'cursor-not-allowed bg-slate-50 text-slate-500' : '',
+            )}
+            {...register('email')}
+          />
+          {googlePrefillMode ? (
+            <p className="mt-1 text-xs text-text-muted">
+              Email is locked because it is linked from your Google account.
+            </p>
+          ) : null}
           {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email.message}</p>}
         </div>
         <TimezoneSelect
@@ -110,6 +196,23 @@ export default function BusinessSignupPage() {
         <Button type="submit" className="w-full" loading={isSubmitting}>
           Create workspace
         </Button>
+        {!googlePrefillMode ? (
+          <>
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-slate-200 dark:border-slate-700" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white px-2 text-text-muted dark:bg-slate-950">or</span>
+              </div>
+            </div>
+            <GoogleAuthButton
+              label="Continue with Google"
+              onClick={onGoogleSignup}
+              disabled={isSubmitting || prefillLoading}
+            />
+          </>
+        ) : null}
       </form>
       <p className="mt-4 text-center text-sm text-text-secondary">
         Already have an account?{' '}

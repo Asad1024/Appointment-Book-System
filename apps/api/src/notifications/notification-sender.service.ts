@@ -161,7 +161,7 @@ export class NotificationSenderService {
       : undefined;
 
     const webUrl = process.env.WEB_URL ?? 'http://localhost:3002';
-    const manageUrl = `${webUrl}/manage/${appt.manageToken}`;
+    const manageUrl = `${webUrl}/manage/${appt.manageToken}?partner=1`;
     const adminAppointmentUrl = `${webUrl}/admin/appointments/${appt.id}`;
     const calEvent = calendarEventFromAppointment(appt);
     const googleCalendarUrl = buildGoogleCalendarUrl(calEvent);

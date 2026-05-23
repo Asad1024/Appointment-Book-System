@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { FaWhatsapp } from 'react-icons/fa6';
 import { toast } from 'sonner';
+import { AdminBookAppointmentHeadingButton } from '@/components/appointments/AdminBookAppointmentHeadingButton';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { Badge } from '@/components/ui/badge';
@@ -239,6 +240,7 @@ export default function AdminNotificationsPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <AdminBookAppointmentHeadingButton />
               <Button
                 variant="outline"
                 onClick={() => void markAllAsRead()}

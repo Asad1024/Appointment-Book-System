@@ -22,6 +22,11 @@ type ProviderScheduleEditorProps = {
   showBlockedTimes?: boolean;
 };
 
+function toMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
 export function ProviderScheduleEditor({
   providerId,
   showBlockedTimes = true,
@@ -71,6 +76,21 @@ export function ProviderScheduleEditor({
   }, [providerId, showBlockedTimes]);
 
   async function saveSchedule() {
+    for (const rule of rules.filter((r) => r.enabled)) {
+      const startMinutes = toMinutes(rule.startTime);
+      const endMinutes = toMinutes(rule.endTime);
+      if (startMinutes === endMinutes) {
+        toast.error(`${DAYS[rule.dayOfWeek]}: end time must be after start time`);
+        return;
+      }
+      if (endMinutes < startMinutes && rule.endTime !== '00:00') {
+        toast.error(
+          `${DAYS[rule.dayOfWeek]}: end time must be after start time (or 12:00 AM for end of day)`,
+        );
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const payload = rules

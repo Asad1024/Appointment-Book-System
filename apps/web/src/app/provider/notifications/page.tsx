@@ -17,6 +17,7 @@ import {
 import { FaWhatsapp } from 'react-icons/fa6';
 import { toast } from 'sonner';
 import { EmptyState } from '@/components/admin/EmptyState';
+import { ProviderBookAppointmentHeadingButton } from '@/components/appointments/ProviderBookAppointmentHeadingButton';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -236,6 +237,7 @@ export default function ProviderNotificationsPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <ProviderBookAppointmentHeadingButton />
               <Button
                 variant="outline"
                 onClick={() => void markAllAsRead()}

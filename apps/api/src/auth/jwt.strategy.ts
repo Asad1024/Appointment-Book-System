@@ -9,6 +9,7 @@ export interface JwtPayload {
   email: string;
   role: string;
   orgId: string;
+  avatarUrl?: string;
   type?: string;
 }
 
@@ -46,6 +47,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       orgId: user.organizationId,
       providerId: user.providerId,
       emailVerified: user.emailVerified,
+      avatarUrl: payload.avatarUrl,
     };
   }
 }

@@ -5,10 +5,14 @@ import {
   parseReminderOffsetsJson,
 } from '@pkg/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
+import { BillingService } from '../billing/billing.service';
 
 @Injectable()
 export class IntegrationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private billing: BillingService,
+  ) {}
 
   async getBookingContext(orgSlug: string, product?: string, locationId?: string) {
     const org = await this.prisma.organization.findUnique({
@@ -29,7 +33,18 @@ export class IntegrationService {
     }
     if (org.locations.length === 0) throw new NotFoundException('No location configured');
 
-    const locations = org.locations.map((loc) => ({
+    const limitState = await this.billing.getLimitResolutionState(org.id);
+    const enabledLocationIds = new Set(limitState.locations.enabledIds);
+    const visibleLocations =
+      limitState.locations.limit == null
+        ? org.locations
+        : org.locations.filter((loc) => enabledLocationIds.has(loc.id));
+
+    if (visibleLocations.length === 0) {
+      throw new ForbiddenException('No active booking location is available right now');
+    }
+
+    const locations = visibleLocations.map((loc) => ({
       id: loc.id,
       name: loc.name,
       timezone: loc.timezone,
@@ -38,12 +53,12 @@ export class IntegrationService {
       reminderOffsetsMinutes: parseReminderOffsetsJson(loc.reminderOffsetsMinutes),
     }));
 
-    if (locationId && !org.locations.some((l) => l.id === locationId)) {
+    if (locationId && !visibleLocations.some((l) => l.id === locationId)) {
       throw new NotFoundException('Location not found');
     }
     const selected =
-      (locationId ? org.locations.find((l) => l.id === locationId) : undefined) ??
-      org.locations[0];
+      (locationId ? visibleLocations.find((l) => l.id === locationId) : undefined) ??
+      visibleLocations[0];
 
     const servicesRaw = await this.prisma.service.findMany({
       where: {
@@ -135,6 +150,7 @@ export class IntegrationService {
       },
     });
     if (!service) throw new NotFoundException('Service not found');
+    await this.billing.assertLocationEnabled(org.id, service.locationId);
 
     return this.buildBookingEventPayload(org, service, provider);
   }
@@ -157,6 +173,7 @@ export class IntegrationService {
       },
     });
     if (!service) throw new NotFoundException('Service not found');
+    await this.billing.assertLocationEnabled(org.id, service.locationId);
 
     const provider = await this.prisma.provider.findFirst({
       where: {

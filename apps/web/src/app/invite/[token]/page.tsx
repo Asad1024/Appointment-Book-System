@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
@@ -16,6 +16,8 @@ import { Badge } from '@/components/ui/badge';
 import { PasswordField } from '@/components/shared/PasswordField';
 import { PasswordStrength } from '@/components/shared/PasswordStrength';
 import { Skeleton } from '@/components/ui/skeleton';
+import { GoogleAuthButton } from '@/components/auth/GoogleAuthButton';
+import { buildGoogleAuthStartUrl } from '@/lib/google-auth';
 
 type InvitePreview = {
   email: string;
@@ -29,8 +31,21 @@ type InvitePreview = {
 export default function AcceptInvitePage() {
   const { token } = useParams<{ token: string }>();
   const router = useRouter();
+  const search = useSearchParams();
   const [preview, setPreview] = useState<InvitePreview | null>(null);
   const [loadError, setLoadError] = useState('');
+  const googleError = search.get('google');
+  const googleMessage = search.get('message');
+  const failurePath = `/invite/${token}`;
+  const inviteRole = preview?.role === 'provider' ? 'provider' : 'admin';
+  const googleHref = token
+    ? buildGoogleAuthStartUrl({
+        intent: 'invite_accept',
+        role: inviteRole,
+        inviteToken: token,
+        failurePath,
+      })
+    : '';
 
   const {
     register,
@@ -48,6 +63,12 @@ export default function AcceptInvitePage() {
       .then(setPreview)
       .catch((e) => setLoadError(e.message));
   }, [token]);
+
+  useEffect(() => {
+    if (googleError === 'error') {
+      toast.error(googleMessage || 'Google invite sign-in failed');
+    }
+  }, [googleError, googleMessage]);
 
   useEffect(() => {
     if (!preview?.suggestedName) return;
@@ -128,6 +149,23 @@ export default function AcceptInvitePage() {
         <Button type="submit" className="w-full" loading={isSubmitting}>
           Join team
         </Button>
+        {preview.role !== 'provider' ? (
+          <>
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-slate-200 dark:border-slate-700" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white px-2 text-text-muted dark:bg-slate-950">or</span>
+              </div>
+            </div>
+            <GoogleAuthButton
+              label="Continue with Google"
+              href={googleHref}
+              disabled={isSubmitting}
+            />
+          </>
+        ) : null}
       </form>
     </AuthShell>
   );

@@ -481,7 +481,6 @@ export function FilledBooking({ params }: { params: FilledBookingParams }) {
         primaryColor={primaryColor}
         embed={params.embed}
         returnUrl={params.returnUrl}
-        partner={params.partner}
       />
     );
   }

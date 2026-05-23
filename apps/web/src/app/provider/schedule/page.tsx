@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { CalendarClock, Clock3, PlugZap } from 'lucide-react';
 import { PageTransition } from '@/components/motion/PageTransition';
+import { ProviderBookAppointmentHeadingButton } from '@/components/appointments/ProviderBookAppointmentHeadingButton';
 import { ProviderScheduleEditor } from '@/components/provider/ProviderScheduleEditor';
 import { Card, CardBody } from '@/components/ui/card';
 import { useProviderSession } from '@/lib/useProviderSession';
@@ -14,14 +15,17 @@ export default function ProviderSchedulePage() {
     <PageTransition>
       <div className="-mx-4 -mt-4 sm:-mx-8 sm:-mt-8">
         <div className="mb-4 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-          <div className="px-4 py-3 sm:px-5 lg:px-6">
-            <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
-              My schedule
-            </h1>
-            <p className="mt-1 text-sm text-text-secondary">
-              Set your weekly working hours
-              {profile?.location?.timezone ? ` - ${profile.location.timezone}` : ''}
-            </p>
+          <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:px-6">
+            <div>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
+                My schedule
+              </h1>
+              <p className="mt-1 text-sm text-text-secondary">
+                Set your weekly working hours
+                {profile?.location?.timezone ? ` - ${profile.location.timezone}` : ''}
+              </p>
+            </div>
+            <ProviderBookAppointmentHeadingButton />
           </div>
         </div>
         <div className="px-4 pb-6 sm:px-5 lg:px-6">

@@ -2,23 +2,35 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
 import { PRO_PRICE_CURRENCY } from '../billing/billing.constants';
 
+export type BillingCheckoutPlanKey = 'pro' | 'scale';
+
+const DEFAULT_SCALE_PRODUCT_ID = 'prod_UZNgu7cQBPsBhu';
+
 @Injectable()
 export class StripeService {
   private readonly logger = new Logger(StripeService.name);
-  private readonly stripe: InstanceType<typeof Stripe> | null;
-  private proPriceIdCache: string | null = null;
+  private stripe: InstanceType<typeof Stripe> | null = null;
+  private readonly planPriceIdCache: Record<BillingCheckoutPlanKey, string | null> = {
+    pro: null,
+    scale: null,
+  };
 
-  constructor() {
+  constructor() {}
+
+  private getOrCreateClient(): InstanceType<typeof Stripe> | null {
+    if (this.stripe) return this.stripe;
     const key = process.env.STRIPE_SECRET_KEY;
-    this.stripe = key ? new Stripe(key) : null;
-  }
-
-  getClient(): InstanceType<typeof Stripe> | null {
+    if (!key) return null;
+    this.stripe = new Stripe(key);
     return this.stripe;
   }
 
+  getClient(): InstanceType<typeof Stripe> | null {
+    return this.getOrCreateClient();
+  }
+
   isEnabled(): boolean {
-    return !!this.stripe;
+    return !!this.getOrCreateClient();
   }
 
   getPublishableKey(): string | null {
@@ -33,35 +45,63 @@ export class StripeService {
     return process.env.STRIPE_BOOKING_CURRENCY ?? 'aed';
   }
 
+  private priceEnvVar(plan: BillingCheckoutPlanKey): string | undefined {
+    if (plan === 'scale') return process.env.STRIPE_PRICE_SCALE;
+    return process.env.STRIPE_PRICE_PRO;
+  }
+
+  private productIdForPlan(plan: BillingCheckoutPlanKey): string | undefined {
+    if (plan === 'scale') {
+      return process.env.STRIPE_PRODUCT_SCALE ?? DEFAULT_SCALE_PRODUCT_ID;
+    }
+    return process.env.STRIPE_PRODUCT_PRO;
+  }
+
+  canCheckoutPlan(plan: BillingCheckoutPlanKey): boolean {
+    if (!this.isEnabled()) return false;
+    return Boolean(this.priceEnvVar(plan) || this.productIdForPlan(plan));
+  }
+
+  canCheckoutAnyPlan(): boolean {
+    return this.canCheckoutPlan('pro') || this.canCheckoutPlan('scale');
+  }
+
   constructWebhookEvent(
     payload: Buffer,
     signature: string,
   ): ReturnType<InstanceType<typeof Stripe>['webhooks']['constructEvent']> {
-    if (!this.stripe) {
+    const client = this.getOrCreateClient();
+    if (!client) {
       throw new BadRequestException('Stripe is not configured');
     }
     const secret = this.getWebhookSecret();
     if (!secret) {
       throw new BadRequestException('STRIPE_WEBHOOK_SECRET is not configured');
     }
-    return this.stripe.webhooks.constructEvent(payload, signature, secret);
+    return client.webhooks.constructEvent(payload, signature, secret);
   }
 
-  async resolveProPriceId(): Promise<string> {
-    if (!this.stripe) {
+  async resolvePlanPriceId(plan: BillingCheckoutPlanKey): Promise<string> {
+    const client = this.getOrCreateClient();
+    if (!client) {
       throw new BadRequestException('Stripe is not configured');
     }
-    if (process.env.STRIPE_PRICE_PRO) {
-      return process.env.STRIPE_PRICE_PRO;
-    }
-    if (this.proPriceIdCache) return this.proPriceIdCache;
 
-    const productId = process.env.STRIPE_PRODUCT_PRO;
+    const explicitPriceId = this.priceEnvVar(plan);
+    if (explicitPriceId) {
+      return explicitPriceId;
+    }
+
+    const cached = this.planPriceIdCache[plan];
+    if (cached) return cached;
+
+    const productId = this.productIdForPlan(plan);
     if (!productId) {
-      throw new BadRequestException('STRIPE_PRODUCT_PRO is not configured');
+      const expectedVar = plan === 'scale' ? 'STRIPE_PRODUCT_SCALE' : 'STRIPE_PRODUCT_PRO';
+      throw new BadRequestException(`${expectedVar} is not configured`);
     }
 
-    const prices = await this.stripe.prices.list({
+    const prices = await client.prices.list({
       product: productId,
       active: true,
       type: 'recurring',
@@ -76,30 +116,40 @@ export class StripeService {
       );
     }
 
-    this.proPriceIdCache = preferred.id;
+    this.planPriceIdCache[plan] = preferred.id;
     return preferred.id;
   }
 
-  async createProCheckoutSession(params: {
+  async createSubscriptionCheckoutSession(params: {
+    plan: BillingCheckoutPlanKey;
     organizationId: string;
     customerEmail: string;
     successUrl: string;
     cancelUrl: string;
   }): Promise<string> {
-    if (!this.stripe) {
+    const client = this.getOrCreateClient();
+    if (!client) {
       throw new BadRequestException('Stripe is not configured');
     }
 
-    const priceId = await this.resolveProPriceId();
-    const session = await this.stripe.checkout.sessions.create({
+    const priceId = await this.resolvePlanPriceId(params.plan);
+    const session = await client.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
       customer_email: params.customerEmail,
       success_url: params.successUrl,
       cancel_url: params.cancelUrl,
-      metadata: { organizationId: params.organizationId },
+      metadata: {
+        organizationId: params.organizationId,
+        billingPlan: params.plan,
+        billingEmail: params.customerEmail,
+      },
       subscription_data: {
-        metadata: { organizationId: params.organizationId },
+        metadata: {
+          organizationId: params.organizationId,
+          billingPlan: params.plan,
+          billingEmail: params.customerEmail,
+        },
       },
     });
 
@@ -119,12 +169,13 @@ export class StripeService {
     cancelUrl: string;
     metadata: Record<string, string>;
   }): Promise<string> {
-    if (!this.stripe) {
+    const client = this.getOrCreateClient();
+    if (!client) {
       throw new BadRequestException('Stripe is not configured');
     }
 
     const currency = params.currency || this.bookingCurrency();
-    const session = await this.stripe.checkout.sessions.create({
+    const session = await client.checkout.sessions.create({
       mode: 'payment',
       customer_email: params.customerEmail,
       line_items: [
@@ -150,9 +201,10 @@ export class StripeService {
   }
 
   async retrieveCheckoutSession(sessionId: string) {
-    if (!this.stripe) {
+    const client = this.getOrCreateClient();
+    if (!client) {
       throw new BadRequestException('Stripe is not configured');
     }
-    return this.stripe.checkout.sessions.retrieve(sessionId);
+    return client.checkout.sessions.retrieve(sessionId);
   }
 }

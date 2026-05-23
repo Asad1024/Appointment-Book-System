@@ -5,7 +5,14 @@ export interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextArea
 
 export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ className, ...props }, ref) => (
-    <textarea className={cn('input-field min-h-[80px] resize-y', className)} ref={ref} {...props} />
+    <textarea
+      className={cn(
+        'input-field h-auto min-h-[96px] resize-y py-2.5 leading-5 placeholder:text-slate-400 dark:placeholder:text-slate-500',
+        className,
+      )}
+      ref={ref}
+      {...props}
+    />
   ),
 );
 Textarea.displayName = 'Textarea';

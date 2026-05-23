@@ -5,6 +5,7 @@ import { Laptop, MoonStar, Shield, Sun, UserRound } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import { apiAuth, fetchMe, type AuthUser } from '@/lib/api';
+import { ProviderBookAppointmentHeadingButton } from '@/components/appointments/ProviderBookAppointmentHeadingButton';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
@@ -117,13 +118,16 @@ export default function ProviderSettingsPage() {
     <PageTransition>
       <div className="-mx-4 -mt-4 sm:-mx-8 sm:-mt-8">
         <div className="mb-4 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-          <div className="px-4 py-3 sm:px-5 lg:px-6">
-            <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
-              Settings
-            </h1>
-            <p className="mt-1 text-sm text-text-secondary">
-              Manage your profile, security, and appearance
-            </p>
+          <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:px-6">
+            <div>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
+                Settings
+              </h1>
+              <p className="mt-1 text-sm text-text-secondary">
+                Manage your profile, security, and appearance
+              </p>
+            </div>
+            <ProviderBookAppointmentHeadingButton />
           </div>
         </div>
 

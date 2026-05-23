@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Building2,
   Copy,
@@ -16,7 +17,9 @@ import {
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import { AdminLocationsCard, type OrgLocation } from '@/components/admin/AdminLocationsCard';
+import { AdminBookAppointmentHeadingButton } from '@/components/appointments/AdminBookAppointmentHeadingButton';
 import { NotificationTemplatesSettings } from '@/components/admin/NotificationTemplatesSettings';
+import { BillingCard } from '@/components/admin/BillingCard';
 import { ReminderOffsetsAdminEditor } from '@/components/shared/ReminderPreferencesEditor';
 import {
   DEFAULT_REMINDER_OFFSETS_MINUTES,
@@ -37,6 +40,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { apiAuth, ensureCsrf, type AuthUser } from '@/lib/api';
+import { handlePlanLimitError } from '@/lib/plan-limit';
 import {
   Dialog,
   DialogContent,
@@ -84,6 +88,8 @@ type LocationForm = {
   reminderOffsetsMinutes: number[];
 };
 
+type SettingsTab = 'organization' | 'profile' | 'templates' | 'locations' | 'billing';
+
 const LOCALHOST_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0']);
 
 function canUseTenantSubdomain(hostname: string): boolean {
@@ -120,7 +126,7 @@ function buildTenantBookingPreview(
   const rootHost = resolveRootHost(host);
   if (!canUseTenantSubdomain(host)) {
     return {
-      url: `${parsed.origin}/book?org=${encodeURIComponent(safeSlug)}`,
+      url: `${parsed.origin}/?org=${encodeURIComponent(safeSlug)}`,
       usesSubdomain: false,
     };
   }
@@ -138,8 +144,10 @@ function normalizeBookingRootUrl(url: string): string {
   if (!trimmed) return trimmed;
   try {
     const parsed = new URL(trimmed);
-    if (canUseTenantSubdomain(parsed.hostname) && parsed.pathname === '/book' && !parsed.search) {
-      return parsed.origin;
+    const isBookingRootPath = parsed.pathname === '/book' || parsed.pathname === '/book/';
+    if (isBookingRootPath) {
+      const query = parsed.searchParams.toString();
+      return query ? `${parsed.origin}/?${query}` : parsed.origin;
     }
   } catch {
     return trimmed;
@@ -170,11 +178,24 @@ function mapLocationToForm(location: OrgLocation): LocationForm {
   };
 }
 
+function resolveSettingsTab(
+  rawTab: string | null,
+  isOrgAdmin: boolean,
+): SettingsTab {
+  if (rawTab === 'billing') return 'billing';
+  if (rawTab === 'profile') return 'profile';
+  if (rawTab === 'locations') return 'locations';
+  if (rawTab === 'templates' && isOrgAdmin) return 'templates';
+  return 'organization';
+}
+
 export default function AdminSettingsPage() {
+  const searchParams = useSearchParams();
   const { locationId, refresh } = useAdminLocation();
   const { isOrgAdmin } = useStaffSession({ redirectToLogin: false });
   const { theme, resolvedTheme, setTheme } = useTheme();
   const [themeMounted, setThemeMounted] = useState(false);
+  const [activeTab, setActiveTab] = useState<SettingsTab>('organization');
 
   const [org, setOrg] = useState<OrganizationSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -268,6 +289,10 @@ export default function AdminSettingsPage() {
     if (!selectedLocation) return;
     setLocationForm(mapLocationToForm(selectedLocation));
   }, [selectedLocation]);
+
+  useEffect(() => {
+    setActiveTab(resolveSettingsTab(searchParams.get('tab'), isOrgAdmin));
+  }, [searchParams, isOrgAdmin]);
 
   async function saveBranding(e: React.FormEvent) {
     e.preventDefault();
@@ -429,6 +454,7 @@ export default function AdminSettingsPage() {
       await refresh();
       toast.success('Location policy updated');
     } catch (error) {
+      if (handlePlanLimitError(error)) return;
       toast.error(error instanceof Error ? error.message : 'Could not save location policy');
     } finally {
       setSavingLocation(false);
@@ -549,13 +575,16 @@ export default function AdminSettingsPage() {
     <PageTransition>
       <div className="-mx-4 -mt-4 sm:-mx-8 sm:-mt-8">
         <div className="mb-4 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-          <div className="px-4 py-3 sm:px-5 lg:px-6">
-            <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
-              Settings
-            </h1>
-            <p className="mt-1 text-sm text-text-secondary">
-              Configure organization profile, booking rules, and locations
-            </p>
+          <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:px-6">
+            <div>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
+                Settings
+              </h1>
+              <p className="mt-1 text-sm text-text-secondary">
+                Configure organization profile, booking rules, and locations
+              </p>
+            </div>
+            <AdminBookAppointmentHeadingButton />
           </div>
         </div>
 
@@ -592,11 +621,11 @@ export default function AdminSettingsPage() {
                           </div>
                           <div
                             className={cn(
-                              'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border',
+                              'shrink-0 rounded-xl border p-2.5',
                               card.tone,
                             )}
                           >
-                            <Icon className="h-4 w-4" />
+                            <Icon className="h-5 w-5" />
                           </div>
                         </div>
                       </CardBody>
@@ -605,7 +634,11 @@ export default function AdminSettingsPage() {
                 })}
               </div>
 
-              <Tabs defaultValue="organization" className="space-y-0">
+              <Tabs
+                value={activeTab}
+                onValueChange={(value) => setActiveTab(resolveSettingsTab(value, isOrgAdmin))}
+                className="space-y-0"
+              >
                 <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <TabsList className="h-11 rounded-xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                     <TabsTrigger
@@ -633,6 +666,12 @@ export default function AdminSettingsPage() {
                       className="rounded-lg px-4 data-[state=active]:bg-brand-600 data-[state=active]:text-white"
                     >
                       Locations
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="billing"
+                      className="rounded-lg px-4 data-[state=active]:bg-brand-600 data-[state=active]:text-white"
+                    >
+                      Billing
                     </TabsTrigger>
                   </TabsList>
                   <p className="text-xs text-text-muted">
@@ -828,6 +867,20 @@ export default function AdminSettingsPage() {
                       </CardBody>
                     </Card>
                   ) : null}
+                </TabsContent>
+
+                <TabsContent value="billing" className="mt-0 space-y-6">
+                  {isOrgAdmin ? (
+                    <BillingCard />
+                  ) : (
+                    <Card className="border-slate-200 dark:border-slate-800">
+                      <CardBody className="p-5 sm:p-6">
+                        <p className="text-sm text-text-secondary">
+                          Only organization admins can access billing and plan management.
+                        </p>
+                      </CardBody>
+                    </Card>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="profile" className="mt-0">

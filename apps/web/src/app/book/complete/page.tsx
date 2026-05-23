@@ -119,7 +119,7 @@ function CompleteContent() {
           Payment received. Your appointment is {result.status}.
         </p>
         <Link
-          href={`/manage/${result.manageToken}`}
+          href={`/manage/${result.manageToken}?partner=1`}
           className={cn(buttonVariants(), 'mt-8 inline-flex')}
         >
           View appointment

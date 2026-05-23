@@ -91,7 +91,7 @@ export class AppointmentsService {
       id: appointment.id,
       status: appointment.status,
       manageToken: appointment.manageToken,
-      manageUrl: `/manage/${appointment.manageToken}`,
+      manageUrl: `/manage/${appointment.manageToken}?partner=1`,
       startUtc: appointment.startUtc.toISOString(),
       endUtc: appointment.endUtc.toISOString(),
     };
@@ -215,6 +215,7 @@ export class AppointmentsService {
       throw new BadRequestException('This organization is not accepting bookings');
     }
 
+    await this.billing.assertLocationEnabled(org.id, dto.locationId);
     await this.billing.assertCanAcceptBooking(org.id);
 
     const intakeToSave = await this.intakeValidation.validateAndPrepare(

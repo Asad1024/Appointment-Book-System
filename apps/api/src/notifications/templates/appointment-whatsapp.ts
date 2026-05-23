@@ -40,27 +40,37 @@ export function appointmentWhatsAppMessage(
   }
 
   const when = formatAppointmentWhenPlain(data);
+  const calendarUrl = data.icsDownloadUrl || data.googleCalendarUrl;
 
-  const lines = [
-    title,
+  const lines: Array<string | null> = [
+    `*${title}*`,
     '',
     `Hi ${data.customerName},`,
     intro,
     '',
-    `Service: ${data.serviceName}`,
-    `Provider: ${data.providerName}`,
-    data.locationName ? `Location: ${data.locationName}` : null,
-    `When: ${when}`,
-    '',
-    type !== NotificationType.CANCELLED ? `Manage booking: ${data.manageUrl}` : null,
-    type !== NotificationType.CANCELLED
-      ? `Add to calendar: ${data.googleCalendarUrl}`
-      : null,
-    '',
-    type === NotificationType.CANCELLED
-      ? 'If this cancellation is unexpected, please contact support.'
-      : 'Need help? Reply to this message.',
-  ].filter(Boolean);
+    `*Service:* ${data.serviceName}`,
+    `*Provider:* ${data.providerName}`,
+    data.locationName ? `*Location:* ${data.locationName}` : null,
+    `*When:* ${when}`,
+  ];
+
+  if (type !== NotificationType.CANCELLED) {
+    lines.push(
+      '',
+      '*Manage booking*',
+      data.manageUrl,
+    );
+    if (calendarUrl) {
+      lines.push(
+        '',
+        '*Add to calendar*',
+        calendarUrl,
+      );
+    }
+    lines.push('', 'Need help? Reply to this message.');
+  } else {
+    lines.push('', 'If this cancellation is unexpected, please contact support.');
+  }
 
   return lines.join('\n');
 }

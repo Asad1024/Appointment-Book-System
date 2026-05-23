@@ -7,16 +7,13 @@ import { Bell, CalendarDays, ChevronDown, LogOut, Moon, PlusCircle, Settings, Su
 import { useTheme } from 'next-themes';
 import { Logo } from '@/components/Logo';
 import { InitialsAvatar } from '@/components/shared/InitialsAvatar';
+import { publicBookingPath } from '@/lib/booking-url';
 import { cn } from '@/lib/utils';
 
-const navItems = [
-  { href: '/account', label: 'My appointments', icon: CalendarDays, shortLabel: 'Appointments' },
-  { href: '/book', label: 'Book now', icon: PlusCircle, shortLabel: 'Book' },
-];
-
 function isActivePath(pathname: string | null, href: string) {
-  if (href === '/account') return pathname === '/account';
-  return pathname === href || pathname?.startsWith(`${href}/`);
+  const cleanHref = href.split('?')[0] ?? href;
+  if (cleanHref === '/account') return pathname === '/account';
+  return pathname === cleanHref || pathname?.startsWith(`${cleanHref}/`);
 }
 
 export function CustomerLayout({
@@ -25,13 +22,18 @@ export function CustomerLayout({
   onLogout,
 }: {
   children: React.ReactNode;
-  user: { name: string; email: string };
+  user: { name: string; email: string; avatarUrl?: string | null; organizationSlug?: string | null };
   onLogout: () => void;
 }) {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const bookHref = publicBookingPath(user.organizationSlug);
+  const navItems = [
+    { href: '/account', label: 'My appointments', icon: CalendarDays, shortLabel: 'Appointments' },
+    { href: bookHref, label: 'Book new session', icon: PlusCircle, shortLabel: 'New session' },
+  ];
 
   useEffect(() => {
     setThemeMounted(true);
@@ -106,6 +108,7 @@ export function CustomerLayout({
                 >
                   <InitialsAvatar
                     name={user.name}
+                    src={user.avatarUrl}
                     className="h-8 w-8 bg-brand-100 text-xs text-brand-700 dark:bg-brand-900/40 dark:text-brand-200"
                   />
                   <span className="hidden max-w-[140px] truncate sm:inline">{user.name}</span>

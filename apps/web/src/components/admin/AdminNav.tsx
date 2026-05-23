@@ -25,7 +25,9 @@ export function AdminNav({
   return (
     <nav className="mb-8 flex flex-wrap items-center gap-2 border-b border-slate-200 pb-4 dark:border-slate-800">
       {links
-        .filter((l) => (l.href === '/admin/settings' || l.href === '/admin/team' ? isOrgAdmin : true))
+        .filter((l) =>
+          l.href === '/admin/settings' || l.href === '/admin/team' ? isOrgAdmin : true,
+        )
         .map((l) => (
           <Link
             key={l.href}

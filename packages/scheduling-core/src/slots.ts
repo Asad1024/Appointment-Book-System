@@ -7,6 +7,24 @@ function parseTimeOnDate(date: DateTime, time: string): DateTime {
   return date.set({ hour: h, minute: m, second: 0, millisecond: 0 });
 }
 
+function windowFromRuleOnDate(local: DateTime, rule: WeeklyRule): TimeInterval | null {
+  const start = parseTimeOnDate(local, rule.startTime);
+  let end = parseTimeOnDate(local, rule.endTime);
+
+  // HTML time input stores 12:00 AM as "00:00". For availability ranges,
+  // treat that as end-of-day when start is later in the same day.
+  if (rule.endTime === '00:00' && end <= start) {
+    end = end.plus({ days: 1 });
+  }
+
+  if (end <= start) return null;
+
+  return {
+    startUtc: start.toUTC().toJSDate(),
+    endUtc: end.toUTC().toJSDate(),
+  };
+}
+
 function overlaps(a: TimeInterval, b: TimeInterval): boolean {
   return a.startUtc < b.endUtc && b.startUtc < a.endUtc;
 }
@@ -43,10 +61,9 @@ function generateDayWindows(
   const dow = local.weekday % 7; // Luxon: 1=Mon..7=Sun → map to 0=Sun
   const dayIndex = dow === 7 ? 0 : dow;
   const rules = weeklyRules.filter((r) => r.dayOfWeek === dayIndex);
-  return rules.map((rule) => ({
-    startUtc: parseTimeOnDate(local, rule.startTime).toUTC().toJSDate(),
-    endUtc: parseTimeOnDate(local, rule.endTime).toUTC().toJSDate(),
-  }));
+  return rules
+    .map((rule) => windowFromRuleOnDate(local, rule))
+    .filter((window): window is TimeInterval => window !== null);
 }
 
 export function generateAvailableSlots(input: SlotGenerationInput): TimeSlot[] {

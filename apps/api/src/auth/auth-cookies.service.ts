@@ -7,6 +7,7 @@ const ACCESS_TTL = '15m';
 const REFRESH_TTL = '7d';
 const ACCESS_MS = 15 * 60 * 1000;
 const REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
+const PROFILE_MS = REFRESH_MS;
 
 @Injectable()
 export class AuthCookiesService {
@@ -33,13 +34,24 @@ export class AuthCookiesService {
 
   setAuthCookies(
     res: Response,
-    user: { id: string; email: string; role: string; organizationId: string },
+    user: {
+      id: string;
+      email: string;
+      role: string;
+      organizationId: string;
+      avatarUrl?: string | null;
+    },
   ) {
+    const avatarUrl =
+      typeof user.avatarUrl === 'string' && user.avatarUrl.trim().length > 0
+        ? user.avatarUrl.trim()
+        : undefined;
     const payload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       orgId: user.organizationId,
+      avatarUrl,
     };
     const accessName = this.accessCookieName(user.role);
     const accessToken = this.jwt.sign(payload, { expiresIn: ACCESS_TTL });
@@ -50,6 +62,11 @@ export class AuthCookiesService {
 
     res.cookie(accessName, accessToken, { ...this.cookieBase(), maxAge: ACCESS_MS });
     res.cookie('refresh_token', refreshToken, { ...this.cookieBase(), maxAge: REFRESH_MS });
+    if (avatarUrl) {
+      res.cookie('user_avatar', avatarUrl, { ...this.cookieBase(), maxAge: PROFILE_MS });
+    } else {
+      res.clearCookie('user_avatar', this.cookieBase());
+    }
   }
 
   clearAuthCookies(res: Response) {
@@ -57,6 +74,7 @@ export class AuthCookiesService {
     res.clearCookie('customer_token', base);
     res.clearCookie('admin_token', base);
     res.clearCookie('refresh_token', base);
+    res.clearCookie('user_avatar', base);
   }
 
   extractAccessToken(req: Request): string | null {

@@ -7,6 +7,28 @@ export function getApiUrl() {
   return API_URL;
 }
 
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  resource?: string;
+  details?: Record<string, unknown> | null;
+
+  constructor(
+    message: string,
+    status: number,
+    details?: Record<string, unknown> | null,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code =
+      details && typeof details.code === 'string' ? details.code : undefined;
+    this.resource =
+      details && typeof details.resource === 'string' ? details.resource : undefined;
+    this.details = details ?? null;
+  }
+}
+
 function formatErrorMessage(body: unknown, fallback: string): string {
   if (body && typeof body === 'object' && 'message' in body) {
     const msg = (body as { message: string | string[] }).message;
@@ -73,12 +95,13 @@ function friendlySignInMessage(message: string): string {
 }
 
 async function handleResponse<T>(res: Response, requestPath?: string): Promise<T> {
+  const errBody = (await res.clone().json().catch(() => null)) as Record<string, unknown> | null;
+
   if (res.status === 401) {
-    const err = await res.json().catch(() => null);
-    const message = formatErrorMessage(err, '');
+    const message = formatErrorMessage(errBody, '');
     const apiPath =
-      err && typeof err === 'object' && 'path' in err
-        ? String((err as { path: string }).path)
+      errBody && typeof errBody.path === 'string'
+        ? String(errBody.path)
         : '';
     const isSignInAttempt =
       AUTH_SIGN_IN_PATHS.has(apiPath) ||
@@ -86,21 +109,19 @@ async function handleResponse<T>(res: Response, requestPath?: string): Promise<T
 
     // Wrong email/password on sign-in — not a session timeout
     if (isSignInAttempt) {
-      throw new Error(friendlySignInMessage(message));
+      throw new ApiError(friendlySignInMessage(message), res.status, errBody);
     }
 
     if (message && message !== 'Unauthorized') {
-      throw new Error(message);
+      throw new ApiError(message, res.status, errBody);
     }
-    throw new Error('Session expired. Please sign in again.');
+    throw new ApiError('Session expired. Please sign in again.', res.status, errBody);
   }
   if (res.status === 403) {
-    const err = await res.json().catch(() => null);
-    throw new Error(formatErrorMessage(err, 'Access denied'));
+    throw new ApiError(formatErrorMessage(errBody, 'Access denied'), res.status, errBody);
   }
   if (!res.ok) {
-    const err = await res.json().catch(() => null);
-    throw new Error(formatErrorMessage(err, res.statusText));
+    throw new ApiError(formatErrorMessage(errBody, res.statusText), res.status, errBody);
   }
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -141,6 +162,7 @@ export type AuthUser = {
   name: string;
   role: string;
   emailVerified: boolean;
+  avatarUrl?: string | null;
   providerId?: string | null;
   organizationId?: string;
   organizationSlug?: string;
@@ -150,5 +172,5 @@ export type AuthUser = {
 };
 
 export async function fetchMe(): Promise<AuthUser> {
-  return apiAuth<AuthUser>('/auth/me');
+  return apiAuth<AuthUser>('/auth/me', { cache: 'no-store' });
 }

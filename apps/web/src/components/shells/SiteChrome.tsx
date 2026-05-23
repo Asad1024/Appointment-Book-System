@@ -8,13 +8,20 @@ import { MainShell } from '@/components/layout/MainShell';
 /** Hide marketing header/footer for staff portals and external booking flows. */
 function isMinimalChrome(pathname: string | null): boolean {
   return Boolean(
-    pathname?.startsWith('/embed') ||
+    pathname?.startsWith('/signup') ||
+      pathname?.startsWith('/login') ||
+      pathname?.startsWith('/register') ||
+      pathname?.startsWith('/forgot-password') ||
+      pathname?.startsWith('/reset-password') ||
+      pathname?.startsWith('/verify-email') ||
+      pathname?.startsWith('/embed') ||
       pathname?.startsWith('/partner') ||
       pathname?.startsWith('/b/') ||
       pathname?.startsWith('/manage/') ||
       pathname?.startsWith('/platform') ||
       pathname?.startsWith('/admin') ||
-      pathname?.startsWith('/provider'),
+      pathname?.startsWith('/provider') ||
+      pathname?.startsWith('/upgrade'),
   );
 }
 

@@ -27,6 +27,18 @@ import { Roles } from './roles.decorator';
 import { attachCsrfToken } from './csrf.middleware';
 import { AuthCookiesService } from './auth-cookies.service';
 
+type AuthenticatedRequest = Request & {
+  user: {
+    id: string;
+    avatarUrl?: string | null;
+  };
+};
+
+function readAvatarFromCookie(req: Request): string | undefined {
+  const raw = req.cookies?.user_avatar;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : undefined;
+}
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
@@ -54,6 +66,70 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
     return this.auth.registerCustomer(dto, res);
+  }
+
+  @Public()
+  @Get('google/start')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  googleStart(
+    @Query('intent') intent: string,
+    @Query('flow') flow: string | undefined,
+    @Query('org') orgSlug: string | undefined,
+    @Query('inviteToken') inviteToken: string | undefined,
+    @Query('role') requestedRole: string | undefined,
+    @Query('next') next: string | undefined,
+    @Query('failurePath') failurePath: string | undefined,
+    @Query('companyName') companyName: string | undefined,
+    @Query('adminName') adminName: string | undefined,
+    @Query('timezone') timezone: string | undefined,
+    @Res() res: Response,
+  ) {
+    const url = this.auth.getGoogleStartUrl({
+      intent: intent as 'customer' | 'staff' | 'business_signup' | 'invite_accept',
+      flow: flow as 'login' | 'register' | undefined,
+      orgSlug,
+      inviteToken,
+      requestedRole: requestedRole as 'customer' | 'provider' | 'admin' | 'super_admin',
+      next,
+      failurePath,
+      companyName,
+      adminName,
+      timezone,
+    });
+    return res.redirect(url);
+  }
+
+  @Public()
+  @Get('google/callback')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  async googleCallback(
+    @Query('code') code: string | undefined,
+    @Query('state') state: string | undefined,
+    @Query('error') error: string | undefined,
+    @Res() res: Response,
+  ) {
+    if (error || !code || !state) {
+      return res.redirect(
+        this.auth.resolveGoogleFailureRedirect(
+          state,
+          'Google sign-in was cancelled. Please try again.',
+        ),
+      );
+    }
+    try {
+      const redirectTo = await this.auth.handleGoogleCallback(code, state, res);
+      return res.redirect(redirectTo);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Google sign-in failed';
+      return res.redirect(this.auth.resolveGoogleFailureRedirect(state, message));
+    }
+  }
+
+  @Public()
+  @Get('google/signup-prefill')
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  googleSignupPrefill(@Query('token') token: string) {
+    return this.auth.getGoogleSignupPrefill(token);
   }
 
   @Public()
@@ -104,15 +180,15 @@ export class AuthController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  me(@Req() req: { user: { id: string } }) {
-    return this.auth.getMe(req.user.id);
+  me(@Req() req: AuthenticatedRequest) {
+    return this.auth.getMe(req.user.id, req.user.avatarUrl ?? readAvatarFromCookie(req));
   }
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Patch('me')
-  updateMe(@Req() req: { user: { id: string } }, @Body() dto: UpdateProfileDto) {
-    return this.auth.updateMe(req.user.id, dto);
+  updateMe(@Req() req: AuthenticatedRequest, @Body() dto: UpdateProfileDto) {
+    return this.auth.updateMe(req.user.id, dto, req.user.avatarUrl ?? readAvatarFromCookie(req));
   }
 
   @ApiBearerAuth()

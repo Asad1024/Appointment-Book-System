@@ -1,6 +1,7 @@
 'use client';
 
 import { Calendar, CheckCircle2 } from 'lucide-react';
+import { ProviderBookAppointmentHeadingButton } from '@/components/appointments/ProviderBookAppointmentHeadingButton';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { GoogleCalendarConnect } from '@/components/provider/GoogleCalendarConnect';
 import { Card, CardBody } from '@/components/ui/card';
@@ -10,13 +11,16 @@ export default function ProviderIntegrationsPage() {
     <PageTransition>
       <div className="-mx-4 -mt-4 sm:-mx-8 sm:-mt-8">
         <div className="mb-4 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-          <div className="px-4 py-3 sm:px-5 lg:px-6">
-            <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
-              Integrations
-            </h1>
-            <p className="mt-1 text-sm text-text-secondary">
-              Connect external tools to keep your schedule in sync
-            </p>
+          <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:px-6">
+            <div>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
+                Integrations
+              </h1>
+              <p className="mt-1 text-sm text-text-secondary">
+                Connect external tools to keep your schedule in sync
+              </p>
+            </div>
+            <ProviderBookAppointmentHeadingButton />
           </div>
         </div>
 

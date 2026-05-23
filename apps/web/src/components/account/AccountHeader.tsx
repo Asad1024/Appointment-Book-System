@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ChevronDown, LogOut, Settings } from 'lucide-react';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { InitialsAvatar } from '@/components/shared/InitialsAvatar';
 import { logout, type AuthUser } from '@/lib/api';
+import { resolveCustomerPath } from '@/lib/resolve-org-slug';
 import { ProfileModal } from './ProfileModal';
 import { cn } from '@/lib/utils';
 
@@ -18,12 +19,13 @@ type AccountHeaderProps = {
 
 export function AccountHeader({ user, onUserUpdate }: AccountHeaderProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
   async function signOut() {
     await logout();
-    router.push('/customer/login');
+    router.push(resolveCustomerPath(searchParams, '/customer/login', user.organizationSlug));
   }
 
   return (
@@ -43,7 +45,11 @@ export function AccountHeader({ user, onUserUpdate }: AccountHeaderProps) {
                 aria-expanded={menuOpen}
                 aria-haspopup="menu"
               >
-                <InitialsAvatar name={user.name} className="h-8 w-8 text-xs" />
+                <InitialsAvatar
+                  name={user.name}
+                  src={user.avatarUrl}
+                  className="h-8 w-8 text-xs"
+                />
                 <span className="hidden max-w-[120px] truncate sm:inline">{user.name}</span>
                 <ChevronDown className={cn('h-4 w-4 text-text-muted transition', menuOpen && 'rotate-180')} />
               </button>

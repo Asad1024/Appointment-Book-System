@@ -2,20 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { formatInTimeZone } from 'date-fns-tz';
 import {
+  CalendarDays,
+  CheckCircle2,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
+  Clock3,
   MapPin,
   Search,
-  Sparkles,
   UserRound,
+  XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, apiAuth, ensureCsrf, fetchMe, type AuthUser } from '@/lib/api';
 import { publicBookingPath } from '@/lib/booking-url';
+import { resolveCustomerPath } from '@/lib/resolve-org-slug';
 import { type CalendarAppointment, AppointmentCalendar } from '@/components/calendar/AppointmentCalendar';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
@@ -54,6 +58,48 @@ type SortBy = 'soonest' | 'latest' | 'status';
 type ViewMode = 'list' | 'calendar';
 
 const PAGE_SIZE = 8;
+const statCards = [
+  {
+    key: 'total',
+    label: 'Appointments',
+    helper: 'All your bookings',
+    icon: CalendarDays,
+    valueClass: 'text-text-primary',
+    cardClass: 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
+    iconClass:
+      'border border-brand-100 bg-brand-50 text-brand-700 dark:border-brand-700 dark:bg-brand-900/35 dark:text-brand-200',
+  },
+  {
+    key: 'upcoming',
+    label: 'Upcoming',
+    helper: 'Scheduled ahead',
+    icon: Clock3,
+    valueClass: 'text-emerald-700',
+    cardClass: 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
+    iconClass:
+      'border border-emerald-100 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200',
+  },
+  {
+    key: 'completed',
+    label: 'Completed',
+    helper: 'Finished sessions',
+    icon: CheckCircle2,
+    valueClass: 'text-text-primary',
+    cardClass: 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
+    iconClass:
+      'border border-blue-100 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200',
+  },
+  {
+    key: 'cancelled',
+    label: 'Cancelled',
+    helper: 'Cancelled bookings',
+    icon: XCircle,
+    valueClass: 'text-red-700',
+    cardClass: 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
+    iconClass:
+      'border border-red-100 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200',
+  },
+] as const;
 
 function isUpcoming(a: CustomerAppointment, now = new Date()) {
   return a.status !== 'cancelled' && a.status !== 'completed' && new Date(a.startUtc) >= now;
@@ -66,8 +112,28 @@ function appointmentDurationMinutes(a: CustomerAppointment) {
   return Math.max(0, Math.round((end - start) / 60000));
 }
 
+function statusTopBorderClass(status: string) {
+  switch (status) {
+    case 'confirmed':
+      return 'bg-blue-500';
+    case 'pending':
+      return 'bg-amber-500';
+    case 'checked_in':
+      return 'bg-violet-500';
+    case 'completed':
+      return 'bg-emerald-500';
+    case 'cancelled':
+      return 'bg-slate-400';
+    case 'no_show':
+      return 'bg-red-500';
+    default:
+      return 'bg-brand-500';
+  }
+}
+
 export default function AccountPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [appointments, setAppointments] = useState<CustomerAppointment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -99,9 +165,9 @@ export default function AccountPage() {
       } catch (e) {
         const msg = e instanceof Error ? e.message : '';
         if (msg.toLowerCase().includes('verify')) {
-          router.push('/verify-email?pending=1');
+          router.push(resolveCustomerPath(searchParams, '/verify-email?pending=1'));
         } else {
-          router.push('/customer/login');
+          router.push(resolveCustomerPath(searchParams, '/customer/login'));
         }
       } finally {
         if (mounted) setLoading(false);
@@ -110,7 +176,7 @@ export default function AccountPage() {
     return () => {
       mounted = false;
     };
-  }, [router, loadAppointments]);
+  }, [router, loadAppointments, searchParams]);
 
   const locations = useMemo(() => {
     const unique = new Set<string>();
@@ -132,6 +198,12 @@ export default function AccountPage() {
     const cancelled = appointments.filter((a) => a.status === 'cancelled').length;
     return { total, upcoming, completed, cancelled };
   }, [appointments]);
+  const statValues = {
+    total: stats.total,
+    upcoming: stats.upcoming,
+    completed: stats.completed,
+    cancelled: stats.cancelled,
+  };
 
   const filteredAppointments = useMemo(() => {
     const now = new Date();
@@ -252,42 +324,30 @@ export default function AccountPage() {
   return (
     <PageTransition>
       <div className="mx-auto w-full max-w-[1360px] space-y-5">
-        <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Card className="border-slate-200 shadow-sm dark:border-slate-800">
-              <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Appointments</p>
-                <p className="mt-2 text-3xl font-semibold text-text-primary">{stats.total}</p>
-              </CardBody>
-            </Card>
-            <Card className="border-slate-200 shadow-sm dark:border-slate-800">
-              <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Upcoming</p>
-                <p className="mt-2 text-3xl font-semibold text-emerald-600 dark:text-emerald-400">{stats.upcoming}</p>
-              </CardBody>
-            </Card>
-            <Card className="border-slate-200 shadow-sm dark:border-slate-800">
-              <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Completed</p>
-                <p className="mt-2 text-3xl font-semibold text-text-primary">{stats.completed}</p>
-              </CardBody>
-            </Card>
-            <Card className="border-slate-200 shadow-sm dark:border-slate-800">
-              <CardBody className="p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">Cancelled</p>
-                <p className="mt-2 text-3xl font-semibold text-rose-600 dark:text-rose-400">{stats.cancelled}</p>
-              </CardBody>
-            </Card>
-          </div>
-
-          <div className="flex items-stretch">
-            <Link href={bookPath} className="w-full lg:w-auto">
-              <Button className="h-full min-h-[74px] w-full rounded-xl px-6 text-base lg:min-h-0">
-                <Sparkles className="mr-2 h-4 w-4" />
-                Book new session
-              </Button>
-            </Link>
-          </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {statCards.map((s) => {
+            const Icon = s.icon;
+            return (
+              <Card key={s.key} className={`border shadow-sm ${s.cardClass}`}>
+                <CardBody className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+                        {s.label}
+                      </p>
+                      <p className="mt-1 text-xs text-text-muted">{s.helper}</p>
+                    </div>
+                    <div className={`shrink-0 rounded-xl p-2.5 ${s.iconClass}`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                  </div>
+                  <p className={`mt-4 font-display text-3xl font-bold tabular-nums ${s.valueClass}`}>
+                    {statValues[s.key]}
+                  </p>
+                </CardBody>
+              </Card>
+            );
+          })}
         </div>
 
         {!user.emailVerified && (
@@ -399,9 +459,6 @@ export default function AccountPage() {
                 <p className="mt-1 text-sm text-text-secondary">
                   Try changing search/filter or book a new session.
                 </p>
-                <Link href={bookPath} className="mt-6 inline-block">
-                  <Button>Book now</Button>
-                </Link>
               </CardBody>
             </Card>
           ) : (
@@ -414,13 +471,14 @@ export default function AccountPage() {
                   const dateLabel = formatInTimeZone(new Date(a.startUtc), displayTz, 'EEE, MMM d');
                   const timeLabel = `${formatInTimeZone(new Date(a.startUtc), displayTz, 'p')} - ${formatInTimeZone(new Date(a.endUtc), displayTz, 'p')}`;
                   const duration = appointmentDurationMinutes(a);
+                  const topBorderClass = statusTopBorderClass(a.status);
 
                   return (
                     <Card
                       key={a.id}
                       className="group relative overflow-hidden border-slate-200 bg-gradient-to-br from-white via-white to-slate-50/80 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg dark:border-slate-800 dark:from-slate-950 dark:via-slate-950 dark:to-slate-900/70"
                     >
-                      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-brand-500 via-sky-500 to-emerald-500" />
+                      <div className={`absolute inset-x-0 top-0 h-1 ${topBorderClass}`} />
                       <CardBody className="p-5">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">

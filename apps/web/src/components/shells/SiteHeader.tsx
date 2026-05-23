@@ -17,6 +17,11 @@ import { resolveOrgContext } from '@/lib/resolve-org-slug';
 const PUBLIC_NAV = [
   { href: '/', label: 'Home' },
 ] as const;
+const TENANT_LANDING_NAV = [
+  { href: '#booking-home', label: 'Overview' },
+  { href: '#how-it-works', label: 'How it works' },
+  { href: '#why-choose-us', label: 'Why choose us' },
+] as const;
 
 function withOptionalOrg(path: string, orgFromQuery: string): string {
   if (!orgFromQuery) return path;
@@ -50,6 +55,7 @@ function MainNavLinks({
   homeHref,
   customerLoginHref,
   customerRegisterHref,
+  linksOverride,
   mobile,
   onNavigate,
 }: {
@@ -60,23 +66,29 @@ function MainNavLinks({
   homeHref: string;
   customerLoginHref: string;
   customerRegisterHref: string;
+  linksOverride?: { href: string; label: string }[];
   mobile?: boolean;
   onNavigate?: () => void;
 }) {
-  const links: { href: string; label: string }[] = [{ href: homeHref, label: PUBLIC_NAV[0].label }];
-  const staffHref = user?.role === 'provider' ? '/provider/dashboard' : '/admin/dashboard';
-  const staffLabel = 'Staff portal';
-  if (user && isStaff) {
-    links.push({ href: staffHref, label: staffLabel });
-  } else if (user) {
-    links.push({ href: '/account', label: 'My appointments' });
-  } else if (isTenantCustomerContext) {
-    links.push({ href: customerLoginHref, label: 'Sign in' });
-    links.push({ href: customerRegisterHref, label: 'Create account' });
-  } else {
-    links.push({ href: '/login', label: 'Sign in' });
-    links.push({ href: '/signup', label: 'Start free' });
-  }
+  const links: { href: string; label: string }[] = linksOverride
+    ? [...linksOverride]
+    : (() => {
+        const computed: { href: string; label: string }[] = [{ href: homeHref, label: PUBLIC_NAV[0].label }];
+        const staffHref = user?.role === 'provider' ? '/provider/dashboard' : '/admin/dashboard';
+        const staffLabel = 'Staff portal';
+        if (user && isStaff) {
+          computed.push({ href: staffHref, label: staffLabel });
+        } else if (user) {
+          computed.push({ href: '/account', label: 'My appointments' });
+        } else if (isTenantCustomerContext) {
+          computed.push({ href: customerLoginHref, label: 'Sign in' });
+          computed.push({ href: customerRegisterHref, label: 'Create account' });
+        } else {
+          computed.push({ href: '/login', label: 'Sign in' });
+          computed.push({ href: '/signup', label: 'Start free' });
+        }
+        return computed;
+      })();
 
   return (
     <nav
@@ -87,8 +99,10 @@ function MainNavLinks({
       aria-label="Main"
     >
       {links.map(({ href, label }) => {
+        const isAnchorLink = href.startsWith('#');
         const hrefPath = href.split('?')[0] ?? href;
-        const active = pathname === hrefPath || (hrefPath !== '/' && pathname?.startsWith(hrefPath));
+        const active =
+          !isAnchorLink && (pathname === hrefPath || (hrefPath !== '/' && pathname?.startsWith(hrefPath)));
         return (
           <Link
             key={href}
@@ -115,7 +129,9 @@ function AuthNav({
   loading,
   isStaff,
   isTenantCustomerContext,
-  customerBookHref,
+  customerLoginHref,
+  customerCtaHref,
+  customerCtaLabel,
   onSignOut,
   mobile,
   onNavigate,
@@ -124,7 +140,9 @@ function AuthNav({
   loading: boolean;
   isStaff: boolean;
   isTenantCustomerContext: boolean;
-  customerBookHref: string;
+  customerLoginHref: string;
+  customerCtaHref: string;
+  customerCtaLabel: string;
   onSignOut: () => Promise<void>;
   mobile?: boolean;
   onNavigate?: () => void;
@@ -140,7 +158,7 @@ function AuthNav({
   async function handleSignOut() {
     await onSignOut();
     close();
-    router.push('/');
+    router.push(isStaff ? '/login' : customerLoginHref);
     router.refresh();
   }
 
@@ -156,12 +174,12 @@ function AuthNav({
   if (!user) {
     return (
       <Link
-        href={isTenantCustomerContext ? customerBookHref : '/login'}
+        href={isTenantCustomerContext ? customerCtaHref : '/login'}
         className={mobile ? 'w-full' : undefined}
         onClick={close}
       >
         <Button className={mobile ? 'w-full' : undefined} size="sm">
-          {isTenantCustomerContext ? 'Book appointment' : 'Workspace sign in'}
+          {isTenantCustomerContext ? customerCtaLabel : 'Workspace sign in'}
         </Button>
       </Link>
     );
@@ -175,7 +193,7 @@ function AuthNav({
     return (
       <div className="flex w-full flex-col gap-3 border-t border-slate-100 pt-3 dark:border-slate-800">
         <div className="flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
-          <InitialsAvatar name={user.name} className="h-9 w-9 text-xs" />
+          <InitialsAvatar name={user.name} src={user.avatarUrl} className="h-9 w-9 text-xs" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-text-primary">{user.name}</p>
             <p className="truncate text-xs text-text-muted">{user.email}</p>
@@ -207,7 +225,7 @@ function AuthNav({
         aria-expanded={menuOpen}
         aria-haspopup="menu"
       >
-        <InitialsAvatar name={user.name} className="h-8 w-8 text-xs" />
+        <InitialsAvatar name={user.name} src={user.avatarUrl} className="h-8 w-8 text-xs" />
         <span className="hidden max-w-[100px] truncate sm:inline">{user.name}</span>
         <ChevronDown className={cn('h-4 w-4 text-text-muted transition', menuOpen && 'rotate-180')} />
       </button>
@@ -260,17 +278,23 @@ export function SiteHeader() {
   const homeHref = isHostTenantContext
     ? '/'
     : isTenantCustomerContext
-      ? withOptionalOrg('/book', orgFromQuery)
+      ? withOptionalOrg('/', orgFromQuery)
       : '/';
+  const customerOrgForLogout = orgFromQuery || user?.organizationSlug || '';
   const customerLoginHref = isHostTenantContext
     ? '/customer/login'
-    : withOptionalOrg('/customer/login', orgFromQuery);
+    : withOptionalOrg('/customer/login', customerOrgForLogout);
   const customerBookHref = isHostTenantContext
     ? '/book'
     : withOptionalOrg('/book', orgFromQuery);
   const customerRegisterHref = isHostTenantContext
     ? '/register'
     : withOptionalOrg('/register', orgFromQuery);
+  const isBookRoute = pathname?.startsWith('/book') ?? false;
+  const showTenantLandingCenterNav = isTenantCustomerContext && pathname === '/';
+  const hideCenterNav = isBookRoute;
+  const customerCtaHref = isBookRoute ? customerRegisterHref : customerBookHref;
+  const customerCtaLabel = isBookRoute ? 'Create Account' : 'Book appointment';
   const isCustomerBookRoute = pathname?.startsWith('/book') && !!user && !isStaff;
 
   if (HIDE_PATHS.some((p) => pathname?.startsWith(p)) || isCustomerBookRoute) return null;
@@ -280,7 +304,9 @@ export function SiteHeader() {
     loading,
     isStaff,
     isTenantCustomerContext,
-    customerBookHref,
+    customerLoginHref,
+    customerCtaHref,
+    customerCtaLabel,
     onSignOut: signOut,
   };
   const closeMobile = () => setMobileOpen(false);
@@ -289,17 +315,20 @@ export function SiteHeader() {
     <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/80 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
       <div className={cn(pageContainer, 'relative flex items-center justify-between gap-4 py-3')}>
         <Logo href={homeHref} className="relative z-10 shrink-0" />
-        <div className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 md:block">
-          <MainNavLinks
-            pathname={pathname}
-            user={user}
-            isStaff={isStaff}
-            isTenantCustomerContext={isTenantCustomerContext}
-            homeHref={homeHref}
-            customerLoginHref={customerLoginHref}
-            customerRegisterHref={customerRegisterHref}
-          />
-        </div>
+        {!hideCenterNav ? (
+          <div className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 md:block">
+            <MainNavLinks
+              pathname={pathname}
+              user={user}
+              isStaff={isStaff}
+              isTenantCustomerContext={isTenantCustomerContext}
+              homeHref={homeHref}
+              customerLoginHref={customerLoginHref}
+              customerRegisterHref={customerRegisterHref}
+              linksOverride={showTenantLandingCenterNav ? [...TENANT_LANDING_NAV] : undefined}
+            />
+          </div>
+        ) : null}
         <div className="relative z-10 flex shrink-0 items-center gap-2">
           <ThemeToggle />
           <div className="hidden md:block">
@@ -317,17 +346,20 @@ export function SiteHeader() {
       </div>
       {mobileOpen && (
         <div className={cn(pageContainer, 'space-y-3 border-t border-slate-100 py-4 md:hidden dark:border-slate-800')}>
-          <MainNavLinks
-            pathname={pathname}
-            user={user}
-            isStaff={isStaff}
-            isTenantCustomerContext={isTenantCustomerContext}
-            homeHref={homeHref}
-            customerLoginHref={customerLoginHref}
-            customerRegisterHref={customerRegisterHref}
-            mobile
-            onNavigate={closeMobile}
-          />
+          {!hideCenterNav ? (
+            <MainNavLinks
+              pathname={pathname}
+              user={user}
+              isStaff={isStaff}
+              isTenantCustomerContext={isTenantCustomerContext}
+              homeHref={homeHref}
+              customerLoginHref={customerLoginHref}
+              customerRegisterHref={customerRegisterHref}
+              linksOverride={showTenantLandingCenterNav ? [...TENANT_LANDING_NAV] : undefined}
+              mobile
+              onNavigate={closeMobile}
+            />
+          ) : null}
           <AuthNav {...authProps} mobile onNavigate={closeMobile} />
         </div>
       )}

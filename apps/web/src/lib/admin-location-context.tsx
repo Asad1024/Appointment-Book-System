@@ -14,6 +14,12 @@ type OrgSettings = {
   locations: AdminLocation[];
 };
 
+type BillingLimitState = {
+  locations: {
+    enabledIds: string[];
+  };
+};
+
 const STORAGE_KEY = 'slotwise_admin_location_id';
 
 type LocationContextValue = {
@@ -35,13 +41,18 @@ export function AdminLocationProvider({ children }: { children: React.ReactNode 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const org = await apiAuth<OrgSettings>('/settings/organization');
+      const [org, limits] = await Promise.all([
+        apiAuth<OrgSettings>('/settings/organization'),
+        apiAuth<BillingLimitState>('/billing/limits').catch(() => null),
+      ]);
       const locs = org.locations ?? [];
+      const enabledIds = new Set(limits?.locations.enabledIds ?? locs.map((loc) => loc.id));
+      const enabledLocations = locs.filter((loc) => enabledIds.has(loc.id));
       setLocations(locs);
       const stored =
         typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
-      const validStored = locs.find((l) => l.id === stored);
-      const next = validStored?.id ?? locs[0]?.id ?? '';
+      const validStored = enabledLocations.find((l) => l.id === stored);
+      const next = validStored?.id ?? enabledLocations[0]?.id ?? locs[0]?.id ?? '';
       setLocationIdState(next);
       if (next && typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_KEY, next);
@@ -61,6 +72,12 @@ export function AdminLocationProvider({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    const onLimitsUpdated = () => void refresh();
+    window.addEventListener('slotwise:limits-updated', onLimitsUpdated);
+    return () => window.removeEventListener('slotwise:limits-updated', onLimitsUpdated);
   }, [refresh]);
 
   const setLocationId = useCallback((id: string) => {

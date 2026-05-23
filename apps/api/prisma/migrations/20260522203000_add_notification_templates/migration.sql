@@ -11,13 +11,13 @@ CREATE TABLE `notification_templates` (
   `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   `updated_at` DATETIME(3) NOT NULL,
 
-  INDEX `notification_templates_organization_id_channel_audience_event_type_idx`(
+  INDEX `nt_org_channel_audience_event_idx`(
     `organization_id`,
     `channel`,
     `audience`,
     `event_type`
   ),
-  INDEX `notification_templates_organization_id_is_default_idx`(
+  INDEX `nt_org_is_default_idx`(
     `organization_id`,
     `is_default`
   ),

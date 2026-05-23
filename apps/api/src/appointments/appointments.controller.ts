@@ -115,9 +115,18 @@ export class AppointmentsController {
   @Post('admin/book')
   adminBook(
     @Body() dto: BookAppointmentDto,
-    @Req() req: { user: { id: string; email: string } },
+    @Req()
+    req: {
+      user: { id: string; email: string; role: string; providerId?: string | null };
+    },
   ) {
-    return this.appointments.book(dto, AppointmentSource.ADMIN, {
+    const scopedProviderId = providerScope(req);
+    const payload: BookAppointmentDto = {
+      ...dto,
+      providerId: scopedProviderId ?? dto.providerId,
+      source: undefined,
+    };
+    return this.appointments.book(payload, AppointmentSource.ADMIN, {
       id: req.user.id,
       email: req.user.email,
     });

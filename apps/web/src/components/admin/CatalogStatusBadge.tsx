@@ -23,7 +23,7 @@ export function CatalogStatusBadge({
         variant="pending"
         className="border border-amber-200 font-semibold dark:border-amber-800/70 dark:bg-amber-900/40 dark:text-amber-200"
       >
-        Paused
+        Suspended
       </Badge>
     );
   }

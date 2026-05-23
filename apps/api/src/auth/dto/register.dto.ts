@@ -23,4 +23,8 @@ export class RegisterDto {
   @IsString()
   @IsNotEmpty()
   orgSlug!: string;
+
+  @IsOptional()
+  @IsString()
+  googlePrefillToken?: string;
 }

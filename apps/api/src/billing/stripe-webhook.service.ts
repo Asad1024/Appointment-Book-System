@@ -31,6 +31,9 @@ export class StripeWebhookService {
       case 'invoice.payment_succeeded':
         await this.onInvoicePaid(obj);
         break;
+      case 'invoice.payment_failed':
+        await this.onInvoiceFailed(obj);
+        break;
       case 'payment_intent.succeeded':
         this.logger.log(`PaymentIntent succeeded: ${String(obj.id ?? '')}`);
         break;
@@ -43,6 +46,20 @@ export class StripeWebhookService {
     if (!meta || typeof meta !== 'object') return null;
     const organizationId = (meta as Record<string, unknown>).organizationId;
     return typeof organizationId === 'string' ? organizationId : null;
+  }
+
+  private planFromMeta(meta: unknown): 'pro' | 'scale' | undefined {
+    if (!meta || typeof meta !== 'object') return undefined;
+    const rawPlan = (meta as Record<string, unknown>).billingPlan;
+    return rawPlan === 'scale' ? 'scale' : rawPlan === 'pro' ? 'pro' : undefined;
+  }
+
+  private billingEmailFromMeta(meta: unknown): string | undefined {
+    if (!meta || typeof meta !== 'object') return undefined;
+    const rawEmail = (meta as Record<string, unknown>).billingEmail;
+    if (typeof rawEmail !== 'string') return undefined;
+    const email = rawEmail.trim().toLowerCase();
+    return email.length > 0 ? email : undefined;
   }
 
   private async onCheckoutCompleted(session: Record<string, unknown>) {
@@ -59,9 +76,12 @@ export class StripeWebhookService {
     }
 
     await this.billing.activateProFromStripe(organizationId, {
+      plan: this.planFromMeta(session.metadata),
       stripeCustomerId: typeof session.customer === 'string' ? session.customer : undefined,
       stripeSubscriptionId:
         typeof session.subscription === 'string' ? session.subscription : undefined,
+      actorEmail: this.billingEmailFromMeta(session.metadata),
+      sendPaymentEmail: true,
     });
   }
 
@@ -73,16 +93,36 @@ export class StripeWebhookService {
     if (status === 'active' || status === 'trialing') {
       const end = subscription.current_period_end;
       await this.billing.activateProFromStripe(organizationId, {
+        plan: this.planFromMeta(subscription.metadata),
         stripeCustomerId:
           typeof subscription.customer === 'string' ? subscription.customer : undefined,
         stripeSubscriptionId: typeof subscription.id === 'string' ? subscription.id : undefined,
-        periodEnd:
-          typeof end === 'number' ? new Date(end * 1000) : undefined,
+        periodEnd: typeof end === 'number' ? new Date(end * 1000) : undefined,
+        actorEmail: this.billingEmailFromMeta(subscription.metadata),
+        // Stripe can deliver `customer.subscription.updated` before
+        // `checkout.session.completed` / `invoice.payment_succeeded`.
+        // Some subscriptions first arrive as `trialing`; request the
+        // subscription success email here as well so first-time upgrades
+        // don't miss the billing notification.
+        sendPaymentEmail: status === 'active' || status === 'trialing',
       });
       return;
     }
 
-    if (['canceled', 'unpaid', 'incomplete_expired'].includes(status)) {
+    if (status === 'past_due' || status === 'unpaid') {
+      const end = subscription.current_period_end;
+      await this.billing.markSubscriptionPastDue(organizationId, {
+        plan: this.planFromMeta(subscription.metadata),
+        startsAt: typeof end === 'number' ? new Date(end * 1000) : undefined,
+        sendEmail: true,
+        stripeCustomerId:
+          typeof subscription.customer === 'string' ? subscription.customer : undefined,
+        stripeSubscriptionId: typeof subscription.id === 'string' ? subscription.id : undefined,
+      });
+      return;
+    }
+
+    if (['canceled', 'incomplete_expired'].includes(status)) {
       await this.billing.deactivatePro(organizationId);
     }
   }
@@ -108,12 +148,35 @@ export class StripeWebhookService {
     const end = (subscription as { current_period_end?: number }).current_period_end;
 
     await this.billing.activateProFromStripe(organizationId, {
+      plan: this.planFromMeta(subscription.metadata),
       stripeCustomerId:
         typeof invoice.customer === 'string' ? invoice.customer : undefined,
       stripeSubscriptionId: subscription.id,
       periodEnd: typeof end === 'number' ? new Date(end * 1000) : undefined,
       paymentMethodLast4: pm?.card?.last4,
       paymentMethodBrand: pm?.card?.brand,
+      actorEmail: this.billingEmailFromMeta(subscription.metadata),
+      sendPaymentEmail: true,
+    });
+  }
+
+  private async onInvoiceFailed(invoice: Record<string, unknown>) {
+    const subscriptionId =
+      typeof invoice.subscription === 'string' ? invoice.subscription : undefined;
+    if (!subscriptionId || !this.stripe.getClient()) return;
+
+    const subscription = await this.stripe.getClient()!.subscriptions.retrieve(subscriptionId);
+    const organizationId = this.orgIdFromMeta(subscription.metadata);
+    if (!organizationId) return;
+
+    const end = (subscription as { current_period_end?: number }).current_period_end;
+    await this.billing.markSubscriptionPastDue(organizationId, {
+      plan: this.planFromMeta(subscription.metadata),
+      startsAt: typeof end === 'number' ? new Date(end * 1000) : undefined,
+      sendEmail: true,
+      stripeCustomerId:
+        typeof subscription.customer === 'string' ? subscription.customer : undefined,
+      stripeSubscriptionId: subscription.id,
     });
   }
 }

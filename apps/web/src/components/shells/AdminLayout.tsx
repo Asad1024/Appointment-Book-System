@@ -3,12 +3,15 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bell, LogOut, Moon, Settings, Sun } from 'lucide-react';
+import { AlertTriangle, Bell, CreditCard, LogOut, Moon, Settings, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Logo } from '@/components/Logo';
 import { LocationSwitcher } from '@/components/admin/LocationSwitcher';
 import { PlatformScopeSwitcher } from '@/components/platform/PlatformScopeSwitcher';
 import { InitialsAvatar } from '@/components/shared/InitialsAvatar';
+import { Button } from '@/components/ui/button';
+import { PlanLimitUpgradeModal } from '@/components/billing/PlanLimitUpgradeModal';
+import { apiAuth } from '@/lib/api';
 import {
   platformNavCategories,
   platformShellMeta,
@@ -19,6 +22,15 @@ import {
   type ShellNavCategory,
 } from '@/lib/tenant-shell-config';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+
+type BillingBannerInfo = {
+  status: string;
+  inGracePeriod: boolean;
+  accessBlocked: boolean;
+  subscriptionExpiresAt: string | null;
+  stripeCheckoutAvailable?: boolean;
+};
 
 function filterNavCategories(categories: ShellNavCategory[], isOrgAdmin: boolean): ShellNavCategory[] {
   return categories
@@ -58,7 +70,7 @@ export function AdminLayout({
   toolbar,
 }: {
   children: React.ReactNode;
-  user: { name: string; role: string };
+  user: { name: string; role: string; avatarUrl?: string | null };
   onLogout: () => void;
   isOrgAdmin: boolean;
   shell?: 'tenant' | 'platform';
@@ -69,6 +81,8 @@ export function AdminLayout({
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
   const [themeMounted, setThemeMounted] = useState(false);
+  const [billingBanner, setBillingBanner] = useState<BillingBannerInfo | null>(null);
+  const [renewing, setRenewing] = useState(false);
 
   const meta = shell === 'platform' ? platformShellMeta : tenantShellMeta;
   const navByCategory = filterNavCategories(
@@ -100,11 +114,54 @@ export function AdminLayout({
     setThemeMounted(true);
   }, []);
 
+  useEffect(() => {
+    if (shell !== 'tenant' || !isOrgAdmin) {
+      setBillingBanner(null);
+      return;
+    }
+    let active = true;
+
+    void (async () => {
+      try {
+        const billing = await apiAuth<BillingBannerInfo>('/billing', { cache: 'no-store' });
+        if (!active) return;
+        const shouldShow =
+          billing.status === 'past_due' ||
+          billing.status === 'grace_ended' ||
+          billing.inGracePeriod ||
+          billing.accessBlocked;
+        setBillingBanner(shouldShow ? billing : null);
+      } catch {
+        if (active) setBillingBanner(null);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [isOrgAdmin, pathname, shell]);
+
+  async function handleRenewNow() {
+    if (!billingBanner?.stripeCheckoutAvailable) {
+      window.location.href = '/admin/settings';
+      return;
+    }
+    setRenewing(true);
+    try {
+      const { url } = await apiAuth<{ url: string }>('/billing/checkout', { method: 'POST' });
+      window.location.href = url;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not start renewal checkout');
+      setRenewing(false);
+    }
+  }
+
   const isDark = themeMounted ? resolvedTheme === 'dark' : false;
   const userRoleLabel = formatUserRole(user.role, shell);
   const ThemeModeIcon = isDark ? Sun : Moon;
   return (
     <div className="flex min-h-screen bg-surface-subtle">
+      <PlanLimitUpgradeModal />
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-slate-200/80 bg-white text-slate-900 lg:flex dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
         <div className="px-4 pb-4 pt-5">
           <Logo href={meta.logoHref} />
@@ -157,6 +214,7 @@ export function AdminLayout({
             <div className="flex items-center gap-3">
               <InitialsAvatar
                 name={user.name}
+                src={user.avatarUrl}
                 className="h-9 w-9 bg-slate-100 text-xs text-slate-700 dark:bg-slate-800/90 dark:text-slate-100"
               />
               <div className="min-w-0 flex-1">
@@ -312,6 +370,48 @@ export function AdminLayout({
             isDashboardRoute ? 'p-0 pb-24 lg:pb-8' : 'p-4 pb-24 sm:p-8 lg:pb-8',
           )}
         >
+          {billingBanner && (
+            <div className="px-4 pt-4 sm:px-8 sm:pt-5">
+              <div
+                className={cn(
+                  'flex flex-wrap items-start justify-between gap-3 rounded-2xl border px-4 py-3 shadow-sm',
+                  billingBanner.accessBlocked
+                    ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200'
+                    : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200',
+                )}
+              >
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 text-sm font-semibold">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    {billingBanner.accessBlocked
+                      ? 'Subscription paused - renew to restore new bookings'
+                      : 'Payment overdue - grace period is active'}
+                  </p>
+                  {billingBanner.subscriptionExpiresAt && (
+                    <p className="mt-1 text-xs">
+                      {billingBanner.accessBlocked ? 'Grace ended on' : 'Grace ends on'}{' '}
+                      {new Date(billingBanner.subscriptionExpiresAt).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={billingBanner.accessBlocked ? 'destructive' : 'outline'}
+                  loading={renewing}
+                  className={cn(
+                    'shrink-0',
+                    !billingBanner.accessBlocked &&
+                      'border-amber-300 bg-white text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-100 dark:hover:bg-amber-900/35',
+                  )}
+                  onClick={() => void handleRenewNow()}
+                >
+                  <CreditCard className="h-4 w-4" />
+                  Renew now
+                </Button>
+              </div>
+            </div>
+          )}
           {children}
         </main>
       </div>

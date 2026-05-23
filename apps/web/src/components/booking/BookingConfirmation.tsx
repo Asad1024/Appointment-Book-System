@@ -4,21 +4,22 @@ import Link from 'next/link';
 import { AnimatedCheckmark } from '@/components/shared/AnimatedCheckmark';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
+import { useAuthUser } from '@/lib/useAuthUser';
 
 export function BookingConfirmation({
   confirmed,
   primaryColor,
   embed,
   returnUrl,
-  partner,
 }: {
   confirmed: Record<string, unknown>;
   primaryColor: string;
   embed?: boolean;
   returnUrl?: string;
-  partner?: boolean;
 }) {
-  const manageHref = `/manage/${confirmed.manageToken as string}${partner || returnUrl ? '?partner=1' : ''}`;
+  const manageHref = `/manage/${confirmed.manageToken as string}?partner=1`;
+  const { user, loading, isStaff } = useAuthUser();
+  const showMyAppointments = !embed && !loading && Boolean(user) && !isStaff;
   if (returnUrl) {
     return (
       <Card className="mx-auto max-w-md text-center">
@@ -60,7 +61,7 @@ export function BookingConfirmation({
           <Link href={manageHref}>
             <Button style={{ backgroundColor: primaryColor }}>Manage appointment</Button>
           </Link>
-          {!embed && (
+          {showMyAppointments && (
             <Link href="/account">
               <Button variant="outline">My appointments</Button>
             </Link>

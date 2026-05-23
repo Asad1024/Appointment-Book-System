@@ -14,6 +14,7 @@ import { EmailService } from '../notifications/email.service';
 import { teamInviteEmail } from '../notifications/templates';
 import { CreateInviteDto } from './dto/create-invite.dto';
 import { AcceptInviteDto } from './dto/accept-invite.dto';
+import { BillingService } from '../billing/billing.service';
 
 const INVITE_TTL_DAYS = 7;
 const MANAGED_TEAM_ROLES: UserRole[] = [UserRole.ORG_ADMIN, UserRole.LOCATION_MANAGER];
@@ -24,6 +25,7 @@ export class TeamService {
     private prisma: PrismaService,
     private auth: AuthService,
     private email: EmailService,
+    private billing: BillingService,
   ) {}
 
   private inviteAcceptUrl(token: string) {
@@ -66,6 +68,11 @@ export class TeamService {
     const member = await this.getOrgMember(organizationId, memberId);
     if (memberId === actorUserId && data.isActive === false) {
       throw new BadRequestException('You cannot deactivate your own account');
+    }
+    if (data.isActive === true && member.isActive === false) {
+      await this.billing.assertCanCreateStaffAccount(organizationId, {
+        excludeUserId: member.id,
+      });
     }
     return this.prisma.user.update({
       where: { id: memberId },
@@ -120,6 +127,7 @@ export class TeamService {
     if (!INVITABLE_STAFF_ROLES.includes(dto.role)) {
       throw new BadRequestException('Role cannot be invited');
     }
+    await this.billing.assertCanCreateStaffAccount(organizationId);
 
     const email = dto.email.toLowerCase();
 
@@ -244,6 +252,9 @@ export class TeamService {
         );
       }
     }
+    await this.billing.assertCanCreateStaffAccount(invite.organizationId, {
+      excludeUserId: existing?.isActive ? existing.id : undefined,
+    });
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
 

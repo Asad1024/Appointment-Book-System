@@ -20,6 +20,7 @@ import type {
 import { generateWebhookSigningSecret } from './webhook-secret.util';
 import { buildTenantBookingRootUrl } from '../common/booking-link.util';
 import { PrismaService } from '../prisma/prisma.service';
+import { BillingService } from '../billing/billing.service';
 
 const ALLOWED_BOOKING_CURRENCIES = new Set(BOOKING_CURRENCIES.map((c) => c.code));
 const RESERVED_SUBDOMAIN_SLUGS = new Set(['www', 'app', 'admin', 'platform', 'api']);
@@ -36,6 +37,7 @@ export class SettingsService {
     private prisma: PrismaService,
     private reminderConfig: ReminderConfigService,
     private notificationTemplates: NotificationTemplateService,
+    private billing: BillingService,
   ) {}
 
   private normalizeWebhookUrl(raw: string | null | undefined): string | null {
@@ -64,15 +66,37 @@ export class SettingsService {
   private parseOnboardingChecklist(raw: string | null): OnboardingChecklist {
     if (!raw) return this.defaultOnboardingChecklist();
     try {
-      const parsed = JSON.parse(raw) as Partial<OnboardingChecklist>;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return this.defaultOnboardingChecklist();
+      }
+      const source = parsed as Partial<OnboardingChecklist>;
       return {
-        addService: parsed.addService === true,
-        addProvider: parsed.addProvider === true,
-        copyBookingLink: parsed.copyBookingLink === true,
+        addService: source.addService === true,
+        addProvider: source.addProvider === true,
+        copyBookingLink: source.copyBookingLink === true,
       };
     } catch {
       return this.defaultOnboardingChecklist();
     }
+  }
+
+  private mergeOnboardingChecklist(raw: string | null, steps: OnboardingChecklist): string {
+    let base: Record<string, unknown> = {};
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          base = parsed as Record<string, unknown>;
+        }
+      } catch {
+        base = {};
+      }
+    }
+    base.addService = steps.addService;
+    base.addProvider = steps.addProvider;
+    base.copyBookingLink = steps.copyBookingLink;
+    return JSON.stringify(base);
   }
 
   private bookingUrlForOrg(slug: string): string {
@@ -205,6 +229,7 @@ export class SettingsService {
   ) {
     const name = data.name?.trim();
     if (!name) throw new BadRequestException('Location name is required');
+    await this.billing.assertCanCreateLocation(orgId);
     return this.prisma.location.create({
       data: {
         organizationId: orgId,
@@ -234,6 +259,7 @@ export class SettingsService {
       where: { id: locationId, organizationId: orgId },
     });
     if (!loc) throw new NotFoundException('Location not found');
+    await this.billing.assertLocationEnabled(orgId, locationId);
 
     const updateData: Prisma.LocationUpdateInput = {};
     if (data.name !== undefined) {
@@ -268,6 +294,39 @@ export class SettingsService {
     }
 
     return this.prisma.location.update({ where: { id: locationId }, data: updateData });
+  }
+
+  async removeLocation(orgId: string, locationId: string) {
+    const location = await this.prisma.location.findFirst({
+      where: { id: locationId, organizationId: orgId },
+      select: { id: true, name: true },
+    });
+    if (!location) throw new NotFoundException('Location not found');
+
+    const [totalLocations, appointmentCount, providerCount, serviceCount] = await Promise.all([
+      this.prisma.location.count({ where: { organizationId: orgId } }),
+      this.prisma.appointment.count({ where: { locationId } }),
+      this.prisma.provider.count({ where: { locationId } }),
+      this.prisma.service.count({ where: { locationId } }),
+    ]);
+
+    if (totalLocations <= 1) {
+      throw new BadRequestException('At least one location is required');
+    }
+    if (appointmentCount > 0) {
+      throw new BadRequestException(
+        'Cannot delete location with appointment history. Use a different active location and keep this location for records.',
+      );
+    }
+    if (providerCount > 0 || serviceCount > 0) {
+      throw new BadRequestException(
+        'Cannot delete location until all providers and services are removed from it.',
+      );
+    }
+
+    await this.prisma.location.delete({ where: { id: locationId } });
+    await this.billing.removeLocationFromSelections(orgId, locationId);
+    return { ok: true };
   }
 
   async getOrganization(orgId: string) {
@@ -313,9 +372,9 @@ export class SettingsService {
       copyBookingLink: persisted.copyBookingLink,
     };
     const completed = Object.values(merged).every(Boolean);
-    const serialized = JSON.stringify(merged);
+    const serialized = this.mergeOnboardingChecklist(org.onboardingChecklist, merged);
     const needsPersist =
-      serialized !== JSON.stringify(persisted) ||
+      serialized !== (org.onboardingChecklist ?? '') ||
       (completed && !org.onboardingCompletedAt) ||
       (!completed && org.onboardingCompletedAt);
 
@@ -352,11 +411,16 @@ export class SettingsService {
       ...(patch.copyBookingLink === true ? { copyBookingLink: true } : {}),
     };
     const completed = Object.values(next).every(Boolean);
+    const existing = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { onboardingChecklist: true },
+    });
+    if (!existing) throw new NotFoundException('Organization not found');
 
     await this.prisma.organization.update({
       where: { id: orgId },
       data: {
-        onboardingChecklist: JSON.stringify(next),
+        onboardingChecklist: this.mergeOnboardingChecklist(existing.onboardingChecklist, next),
         onboardingCompletedAt: completed ? new Date() : null,
       },
     });

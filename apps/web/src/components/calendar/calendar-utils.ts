@@ -89,11 +89,11 @@ export const STATUS_COLORS: Record<
     dot: 'bg-emerald-500',
   },
   cancelled: {
-    bg: 'bg-slate-100',
-    text: 'text-slate-500 line-through',
-    border: 'border-slate-200',
-    accent: 'border-l-slate-400',
-    dot: 'bg-slate-400',
+    bg: 'bg-red-50',
+    text: 'text-red-900 line-through',
+    border: 'border-red-200',
+    accent: 'border-l-red-500',
+    dot: 'bg-red-500',
   },
   no_show: {
     bg: 'bg-rose-50',

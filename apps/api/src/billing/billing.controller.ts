@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@pkg/shared-types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -21,14 +21,50 @@ export class BillingController {
   }
 
   @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
+  @Get('history')
+  getBillingHistory(@Req() req: { user: { orgId: string } }) {
+    return this.billing.getPaymentHistory(req.user.orgId);
+  }
+
+  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
   @Post('checkout')
-  checkout(@Req() req: { user: { orgId: string; email: string } }) {
-    return this.billing.createStripeCheckout(req.user.orgId, req.user.email);
+  checkout(
+    @Req() req: { user: { orgId: string; email: string } },
+    @Query('returnTo') returnTo: string | undefined,
+    @Query('plan') plan: string | undefined,
+  ) {
+    return this.billing.createStripeCheckout(req.user.orgId, req.user.email, returnTo, plan);
   }
 
   @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
   @Post('subscribe')
   subscribe(@Req() req: { user: { orgId: string } }, @Body() dto: SubscribeDto) {
     return this.billing.subscribeMock(req.user.orgId, dto);
+  }
+
+  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
+  @Post('downgrade')
+  downgrade(@Req() req: { user: { orgId: string; email: string } }) {
+    return this.billing.downgradeToFree(req.user.orgId, req.user.email);
+  }
+
+  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
+  @Get('limits')
+  getLimitResolution(@Req() req: { user: { orgId: string } }) {
+    return this.billing.getLimitResolutionState(req.user.orgId);
+  }
+
+  @Roles(UserRole.ORG_ADMIN, UserRole.SUPER_ADMIN)
+  @Post('limits')
+  resolveLimitSelections(
+    @Req() req: { user: { orgId: string; id: string } },
+    @Body()
+    body: {
+      locationIds?: string[];
+      serviceIds?: string[];
+      staffUserIds?: string[];
+    },
+  ) {
+    return this.billing.resolveLimitSelections(req.user.orgId, req.user.id, body);
   }
 }

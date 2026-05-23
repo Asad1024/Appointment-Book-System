@@ -12,6 +12,7 @@ export function MainShell({ children }: { children: React.ReactNode }) {
     pathname?.startsWith('/partner') ||
     pathname?.startsWith('/b/');
   const isAuth =
+    pathname?.startsWith('/signup') ||
     pathname?.startsWith('/login') ||
     pathname?.startsWith('/staff/login') ||
     pathname?.startsWith('/customer/login') ||

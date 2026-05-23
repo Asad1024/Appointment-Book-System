@@ -17,6 +17,7 @@ import {
   staffBookingSessionExpiresAt,
 } from '../partner/partner-booking-session.util';
 import type { CreateStaffBookingSessionDto } from './dto/create-staff-booking-session.dto';
+import { BillingService } from '../billing/billing.service';
 
 /** Bookable catalog entries (not archived). */
 const NOT_ARCHIVED = { archivedAt: null } as const;
@@ -39,6 +40,7 @@ export class CatalogService {
   constructor(
     private prisma: PrismaService,
     private email: EmailService,
+    private billing: BillingService,
   ) {}
 
   private inviteAcceptUrl(token: string) {
@@ -48,13 +50,30 @@ export class CatalogService {
 
   async listLocations(orgSlug?: string) {
     const where = orgSlug ? { organization: { slug: orgSlug } } : {};
-    return this.prisma.location.findMany({
+    const locations = await this.prisma.location.findMany({
       where,
       include: { organization: { select: { name: true, slug: true } } },
     });
+    if (!orgSlug) {
+      return locations;
+    }
+
+    if (locations.length === 0) return locations;
+    const orgId = locations[0].organizationId;
+    const limits = await this.billing.getLimitResolutionState(orgId);
+    if (limits.locations.limit == null) return locations;
+    const enabled = new Set(limits.locations.enabledIds);
+    return locations.filter((loc) => enabled.has(loc.id));
   }
 
   async listServices(locationId: string, productKey?: string, includeInactive = false) {
+    const location = await this.prisma.location.findUnique({
+      where: { id: locationId },
+      select: { organizationId: true },
+    });
+    if (!location) return [];
+    await this.billing.assertLocationEnabled(location.organizationId, locationId);
+
     const services = await this.prisma.service.findMany({
       where: {
         locationId,
@@ -94,6 +113,13 @@ export class CatalogService {
   }
 
   async listProviders(locationId: string, serviceId?: string, includeInactive = false) {
+    const location = await this.prisma.location.findUnique({
+      where: { id: locationId },
+      select: { organizationId: true },
+    });
+    if (!location) return [];
+    await this.billing.assertLocationEnabled(location.organizationId, locationId);
+
     const providerWhere = {
       locationId,
       ...NOT_ARCHIVED,
@@ -206,11 +232,26 @@ export class CatalogService {
     if (data.priceCents != null && data.priceCents < 0) {
       throw new BadRequestException('Price must be zero or positive');
     }
+    const location = await this.prisma.location.findUnique({
+      where: { id: data.locationId },
+      select: { organizationId: true },
+    });
+    if (!location || location.organizationId !== data.organizationId) {
+      throw new BadRequestException('Location is invalid for this organization');
+    }
+    const organizationId = location.organizationId;
+    await this.billing.assertCanCreateService(organizationId);
     const nameBase = slugifyName(data.name);
-    const slug = await uniqueServiceSlug(this.prisma, data.organizationId, nameBase);
+    const slug = await uniqueServiceSlug(this.prisma, organizationId, nameBase);
     const productKey = await uniqueProductKey(this.prisma, data.locationId, nameBase);
-    const { productKey: _ignored, ...rest } = data;
-    return this.prisma.service.create({ data: { ...rest, slug, productKey } });
+    const {
+      productKey: _ignoredProductKey,
+      organizationId: _ignoredOrganizationId,
+      ...rest
+    } = data;
+    return this.prisma.service.create({
+      data: { ...rest, organizationId, slug, productKey },
+    });
   }
 
   async updateService(
@@ -262,6 +303,7 @@ export class CatalogService {
     if (!service.archivedAt) {
       throw new BadRequestException('Service is not archived');
     }
+    await this.billing.assertCanCreateService(service.organizationId);
     return this.prisma.service.update({
       where: { id },
       data: { archivedAt: null, isActive: true },
@@ -281,12 +323,24 @@ export class CatalogService {
     bio?: string;
     isActive?: boolean;
   }, options?: { invitedById?: string }) {
+    const location = await this.prisma.location.findUnique({
+      where: { id: data.locationId },
+      select: { organizationId: true },
+    });
+    if (!location || location.organizationId !== data.organizationId) {
+      throw new BadRequestException('Location is invalid for this organization');
+    }
+    const organizationId = location.organizationId;
+
     const normalizedEmail = data.email?.trim().toLowerCase() || undefined;
     const shouldInvite = Boolean(normalizedEmail);
+    if (shouldInvite) {
+      await this.billing.assertCanCreateStaffAccount(organizationId);
+    }
 
     const slug = await uniqueProviderSlug(
       this.prisma,
-      data.organizationId,
+      organizationId,
       slugifyName(data.name),
     );
     const created = await this.prisma
@@ -294,6 +348,7 @@ export class CatalogService {
         const provider = await tx.provider.create({
           data: {
             ...data,
+            organizationId,
             email: normalizedEmail,
             isActive: shouldInvite ? false : (data.isActive ?? true),
             slug,
@@ -307,7 +362,7 @@ export class CatalogService {
         });
         const defaultServices = await tx.service.findMany({
           where: {
-            organizationId: data.organizationId,
+            organizationId,
             locationId: data.locationId,
             archivedAt: null,
             isDefault: true,
@@ -343,7 +398,7 @@ export class CatalogService {
               'Email is registered as a customer. Use a work email for provider login.',
             );
           }
-          if (existingUser.organizationId !== data.organizationId) {
+          if (existingUser.organizationId !== organizationId) {
             throw new ConflictException('Email is already used in another organization');
           }
           if (STAFF_ROLES.includes(existingUser.role as UserRole)) {
@@ -362,7 +417,7 @@ export class CatalogService {
 
         await tx.teamInvite.deleteMany({
           where: {
-            organizationId: data.organizationId,
+            organizationId,
             email: inviteEmail,
             role: UserRole.PROVIDER,
             acceptedAt: null,
@@ -371,7 +426,7 @@ export class CatalogService {
 
         const invite = await tx.teamInvite.create({
           data: {
-            organizationId: data.organizationId,
+            organizationId,
             email: inviteEmail,
             role: UserRole.PROVIDER,
             providerId: provider.id,
@@ -426,6 +481,17 @@ export class CatalogService {
     data: { name?: string; email?: string; bio?: string; isActive?: boolean },
   ) {
     const existing = await this.getProvider(id);
+    if (data.isActive === true && existing.isActive === false) {
+      const linkedUser = await this.prisma.user.findFirst({
+        where: { providerId: id, organizationId: existing.organizationId },
+        select: { id: true, isActive: true },
+      });
+      if (linkedUser) {
+        await this.billing.assertCanCreateStaffAccount(existing.organizationId, {
+          excludeUserId: linkedUser.isActive ? undefined : linkedUser.id,
+        });
+      }
+    }
     const payload = { ...data };
     if (data.name && !existing.slug) {
       (payload as { slug?: string }).slug = await uniqueProviderSlug(
@@ -444,6 +510,8 @@ export class CatalogService {
     providerId: string,
     data?: { email?: string | null },
   ) {
+    await this.billing.assertCanCreateStaffAccount(organizationId);
+
     const existingProvider = await this.prisma.provider.findFirst({
       where: { id: providerId, organizationId },
     });
@@ -786,8 +854,13 @@ export class CatalogService {
     for (const r of rules) {
       const [sh, sm] = r.startTime.split(':').map(Number);
       const [eh, em] = r.endTime.split(':').map(Number);
-      minMinutes = Math.min(minMinutes, (sh ?? 0) * 60 + (sm ?? 0));
-      maxMinutes = Math.max(maxMinutes, (eh ?? 0) * 60 + (em ?? 0));
+      const startMinutes = (sh ?? 0) * 60 + (sm ?? 0);
+      let endMinutes = (eh ?? 0) * 60 + (em ?? 0);
+      if (endMinutes < startMinutes && r.endTime === '00:00') {
+        endMinutes = 24 * 60;
+      }
+      minMinutes = Math.min(minMinutes, startMinutes);
+      maxMinutes = Math.max(maxMinutes, endMinutes);
     }
 
     let hourStart = Math.max(MIN_HOUR, Math.floor(minMinutes / 60) - BUFFER_HOURS);
@@ -802,10 +875,46 @@ export class CatalogService {
     return { hourStart, hourEnd };
   }
 
+  private parseHmToMinutes(value: string): number {
+    const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
+    if (!match) {
+      throw new BadRequestException(`Invalid time format: ${value}`);
+    }
+    return Number(match[1]) * 60 + Number(match[2]);
+  }
+
+  private validateAvailabilityRules(
+    rules: { dayOfWeek: number; startTime: string; endTime: string }[],
+  ) {
+    const seenDays = new Set<number>();
+    for (const rule of rules) {
+      if (!Number.isInteger(rule.dayOfWeek) || rule.dayOfWeek < 0 || rule.dayOfWeek > 6) {
+        throw new BadRequestException('dayOfWeek must be between 0 (Sunday) and 6 (Saturday)');
+      }
+      if (seenDays.has(rule.dayOfWeek)) {
+        throw new BadRequestException(`Duplicate availability rule for day ${rule.dayOfWeek}`);
+      }
+      seenDays.add(rule.dayOfWeek);
+
+      const startMinutes = this.parseHmToMinutes(rule.startTime);
+      const endMinutes = this.parseHmToMinutes(rule.endTime);
+
+      if (startMinutes === endMinutes) {
+        throw new BadRequestException('End time must be after start time');
+      }
+      if (endMinutes < startMinutes && rule.endTime !== '00:00') {
+        throw new BadRequestException(
+          'End time must be after start time (or 00:00 for end of day)',
+        );
+      }
+    }
+  }
+
   async setAvailability(
     providerId: string,
     rules: { dayOfWeek: number; startTime: string; endTime: string }[],
   ) {
+    this.validateAvailabilityRules(rules);
     await this.prisma.availabilityRule.deleteMany({ where: { providerId } });
     if (rules.length === 0) return [];
     await this.prisma.availabilityRule.createMany({
@@ -923,6 +1032,8 @@ export class CatalogService {
     user: { orgId: string; role: string; providerId?: string | null },
     dto: CreateStaffBookingSessionDto,
   ) {
+    await this.billing.assertLocationEnabled(user.orgId, dto.locationId);
+
     const location = await this.prisma.location.findFirst({
       where: { id: dto.locationId, organizationId: user.orgId },
     });

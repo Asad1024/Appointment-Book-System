@@ -214,7 +214,11 @@ export class PlatformService {
             where: { organizationId: { in: tenantOrgIds }, status: { not: 'cancelled' } },
           }),
       this.prisma.organization.count({
-        where: { ...tenantWhere, subscriptionPlan: 'pro', subscriptionStatus: 'active' },
+        where: {
+          ...tenantWhere,
+          subscriptionPlan: { in: ['pro', 'scale'] },
+          subscriptionStatus: 'active',
+        },
       }),
       this.prisma.organization.count({
         where: {
@@ -269,7 +273,9 @@ export class PlatformService {
     });
 
     const proActive = orgs.filter(
-      (o) => o.subscriptionPlan === 'pro' && o.subscriptionStatus === 'active',
+      (o) =>
+        (o.subscriptionPlan === 'pro' || o.subscriptionPlan === 'scale') &&
+        o.subscriptionStatus === 'active',
     ).length;
 
     return {

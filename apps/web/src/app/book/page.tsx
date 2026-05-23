@@ -89,7 +89,7 @@ function PublicBookingPage({
   const customerRegisterHref = withOptionalOrg('/register', orgFromQuery);
 
   return (
-    <PageShell wide>
+    <PageShell wide className="pt-8 sm:pt-10">
       <div className="mb-8">
         <h1 className="font-display text-3xl font-bold text-slate-900 dark:text-slate-100">
           {orgLabel ? `Book with ${orgLabel}` : 'Schedule your session'}

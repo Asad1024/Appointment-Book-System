@@ -10,6 +10,13 @@ export type OrgResolution = {
   source: OrgResolutionSource | null;
 };
 
+function withOrgQuery(path: string, orgSlug?: string | null): string {
+  const slug = orgSlug?.trim();
+  if (!slug) return path;
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}org=${encodeURIComponent(slug)}`;
+}
+
 function normalizeHost(hostname: string): string {
   return hostname.split(':')[0]?.toLowerCase() ?? '';
 }
@@ -56,4 +63,21 @@ export function resolveOrgContext(search: SearchLike): OrgResolution {
 /** Resolve org slug only. */
 export function resolveOrgSlug(search: SearchLike): string {
   return resolveOrgContext(search).slug;
+}
+
+/**
+ * Resolve a customer-facing path that preserves tenant context:
+ * - subdomain tenant: keep path clean (no query param)
+ * - localhost query tenant: keep ?org=
+ * - fallback: use provided org slug when available
+ */
+export function resolveCustomerPath(
+  search: SearchLike,
+  path: string,
+  fallbackOrgSlug?: string | null,
+): string {
+  const org = resolveOrgContext(search);
+  if (org.source === 'host') return path;
+  if (org.source === 'query') return withOrgQuery(path, org.slug);
+  return withOrgQuery(path, fallbackOrgSlug);
 }

@@ -29,7 +29,7 @@ export function BookingWizardLayout({
           </div>
         </aside>
 
-        <div className="min-w-0 flex-1 space-y-6">
+        <div className="min-w-0 flex-1 space-y-6 lg:-mt-3">
           <div className="lg:hidden">
             <button
               type="button"

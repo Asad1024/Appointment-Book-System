@@ -39,8 +39,32 @@ model Organization {
   outboundWebhooks       OutboundWebhook[]
   partnerBookingSessions PartnerBookingSession[]
   notificationTemplates  NotificationTemplate[]
+  billingHistoryEntries  BillingHistory[]
 
   @@map("organizations")
+}
+
+model BillingHistory {
+  id               String   @id @default(uuid())
+  organizationId   String   @map("organization_id")
+  eventType        String   @map("event_type")
+  status           String
+  number           String?
+  currency         String   @default("AED")
+  amountPaidMinor  Int      @default(0) @map("amount_paid_minor")
+  amountDueMinor   Int      @default(0) @map("amount_due_minor")
+  externalId       String?  @map("external_id")
+  hostedInvoiceUrl String?  @map("hosted_invoice_url") @db.Text
+  invoicePdfUrl    String?  @map("invoice_pdf_url") @db.Text
+  receiptUrl       String?  @map("receipt_url") @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@unique([organizationId, eventType, externalId], map: "bh_org_event_external_uk")
+  @@map("billing_history")
 }
 
 model OutboundWebhook {
@@ -140,6 +164,7 @@ model User {
   email                   String    @unique
   passwordHash            String    @map("password_hash")
   name                    String
+  avatarUrl               String?   @map("avatar_url") @db.VarChar(1024)
   role                    String    @default("customer")
   providerId              String?   @unique @map("provider_id")
   emailVerified           Boolean   @default(false) @map("email_verified")
@@ -433,8 +458,8 @@ model NotificationTemplate {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@index([organizationId, channel, audience, eventType])
-  @@index([organizationId, isDefault])
+  @@index([organizationId, channel, audience, eventType], map: "nt_org_channel_audience_event_idx")
+  @@index([organizationId, isDefault], map: "nt_org_is_default_idx")
   @@map("notification_templates")
 }
 

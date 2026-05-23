@@ -42,6 +42,10 @@ paths:
   /appointments/book:
     post:
       summary: Book appointment (public)
+  /appointments/admin/book:
+    post:
+      summary: Book appointment (staff manual booking)
+      security: [{ bearerAuth: [] }]
   /appointments/manage/{token}:
     get:
       summary: Get appointment by manage token

@@ -24,8 +24,7 @@ export class EmailService {
       process.env.SMTP_FROM_EMAIL ??
       process.env.EMAIL_FROM ??
       'noreply@appointments.local';
-    const name = process.env.SMTP_FROM_NAME;
-    return name ? `"${name}" <${email}>` : email;
+    return `"Slotwise" <${email}>`;
   }
 
   async send(to: string, subject: string, html: string): Promise<void> {

@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { formatInTimeZone } from 'date-fns-tz';
 import {
-  ArrowLeft,
   CalendarClock,
   CheckCircle2,
   Mail,
@@ -17,6 +16,7 @@ import { toast } from 'sonner';
 import { api, apiAuth } from '@/lib/api';
 import { useProviderSession } from '@/lib/useProviderSession';
 import { AppointmentNotes, type AppointmentNoteItem } from '@/components/appointments/AppointmentNotes';
+import { ProviderBookAppointmentHeadingButton } from '@/components/appointments/ProviderBookAppointmentHeadingButton';
 import { formatIntakeDisplayValue } from '@/lib/format-intake-value';
 import { PageTransition } from '@/components/motion/PageTransition';
 import { SlideOver } from '@/components/admin/SlideOver';
@@ -141,34 +141,40 @@ export default function ProviderAppointmentDetailPage() {
       <PageTransition>
         <p className="text-text-secondary">Appointment not found.</p>
         <Link href="/provider/dashboard" className="mt-4 inline-block text-brand-600 hover:underline">
-          ← Back
+          Back to dashboard
         </Link>
       </PageTransition>
     );
   }
 
   const canModify = !['cancelled', 'completed'].includes(appt.status);
+  const canCheckIn = appt.status === 'confirmed';
+  const canMarkComplete = appt.status === 'checked_in';
+  const canNoShow = ['confirmed', 'checked_in'].includes(appt.status);
+  const canCancel = ['pending', 'confirmed', 'checked_in'].includes(appt.status);
 
   return (
     <PageTransition>
-      <Link
-        href="/provider/dashboard"
-        className="mb-6 inline-flex items-center gap-1 text-sm text-text-secondary hover:text-brand-600"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Dashboard
-      </Link>
-
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-text-primary">Appointment</h1>
-          <p className="mt-1 text-sm text-text-secondary">{appt.service.name}</p>
+      <div className="-mx-4 -mt-4 sm:-mx-8 sm:-mt-8">
+        <div className="mb-4 border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:px-6">
+            <div>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">
+                Appointment
+              </h1>
+              <p className="mt-1 text-sm text-text-secondary">{appt.service.name}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <ProviderBookAppointmentHeadingButton />
+              <StatusBadge status={appt.status} className="text-sm" />
+            </div>
+          </div>
         </div>
-        <StatusBadge status={appt.status} className="text-sm" />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+      <div className="px-4 pb-6 sm:px-5 lg:px-6">
+        <div className="grid gap-6 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
           <CardBody>
             <h2 className="mb-4 font-display text-lg font-semibold">Details</h2>
             <dl className="grid gap-4 text-sm sm:grid-cols-2">
@@ -186,31 +192,52 @@ export default function ProviderAppointmentDetailPage() {
 
             {canModify && (
               <div className="mt-6 flex flex-wrap gap-2 border-t border-slate-100 pt-6 dark:border-slate-800">
-                <Button size="sm" loading={statusLoading} onClick={() => setStatus('checked_in')}>
+                <Button
+                  size="sm"
+                  loading={statusLoading}
+                  disabled={!canCheckIn || statusLoading}
+                  onClick={() => setStatus('checked_in')}
+                >
                   <CheckCircle2 className="mr-1 h-4 w-4" />
                   Check in
                 </Button>
-                <Button size="sm" loading={statusLoading} onClick={() => setStatus('completed')}>
+                <Button
+                  size="sm"
+                  loading={statusLoading}
+                  disabled={!canMarkComplete || statusLoading}
+                  onClick={() => setStatus('completed')}
+                >
                   Mark complete
                 </Button>
-                <Button size="sm" variant="outline" loading={statusLoading} onClick={() => setStatus('no_show')}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  loading={statusLoading}
+                  disabled={!canNoShow || statusLoading}
+                  onClick={() => setStatus('no_show')}
+                >
                   No-show
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setRescheduleOpen(true)}>
                   <CalendarClock className="mr-1 h-4 w-4" />
                   Reschedule
                 </Button>
-                <Button size="sm" variant="ghost" className="text-red-600" onClick={() => setConfirmCancel(true)}>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={!canCancel || statusLoading}
+                  onClick={() => setConfirmCancel(true)}
+                >
                   <XCircle className="mr-1 h-4 w-4" />
                   Cancel
                 </Button>
               </div>
             )}
           </CardBody>
-        </Card>
+          </Card>
 
-        <Card>
-          <CardBody>
+          <Card>
+            <CardBody>
             <h2 className="mb-4 font-display text-lg font-semibold">Customer</h2>
             <div className="flex items-center gap-3">
               <InitialsAvatar name={appt.customer.name} />
@@ -236,9 +263,9 @@ export default function ProviderAppointmentDetailPage() {
                 {appt.service.name}
               </li>
             </ul>
-          </CardBody>
-        </Card>
-      </div>
+            </CardBody>
+          </Card>
+        </div>
 
       {appt.intakeResponses && appt.intakeResponses.length > 0 && (
         <Card className="mt-6">
@@ -324,6 +351,8 @@ export default function ProviderAppointmentDetailPage() {
         loading={statusLoading}
         onConfirm={() => setStatus('cancelled')}
       />
+      </div>
     </PageTransition>
   );
 }
+
