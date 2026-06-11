@@ -1,0 +1,126 @@
+Slotwise - Customer Feature Overview
+
+Slotwise helps you book appointments with businesses online—anytime, from any device. Choose a service, pick who you want to see, select an open time, and get instant confirmation. You can manage bookings without phone calls, receive reminders so you do not miss your visit, and sign in to see all your appointments in one place.
+
+
+Section 1: Core Product Features
+
+1.1 Guided Online Booking
+- Book in minutes with a clear step-by-step flow: service, staff member, date and time, then your details.
+- See only real open times based on the business schedule—no guessing or back-and-forth emails.
+- Works on phone, tablet, and desktop with a clean, easy-to-read layout.
+
+1.2 AI Booking Assistant
+- Ask questions in plain language and get help choosing a service, provider, and time.
+- Tap suggested actions to move through booking faster than filling out forms alone.
+- Available on the business booking page, during booking, and in your signed-in account for ongoing help.
+
+1.3 Manage Appointments Without an Account
+- Open your personal manage link from email to view appointment details anytime.
+- Reschedule to another open slot, cancel within the business rules, and see your booking status.
+- Add the visit to Google Calendar or download a calendar file for Outlook and Apple Calendar.
+
+1.4 Waitlist When Times Are Full
+- Join a waitlist when your preferred day has no open slots.
+- Get notified by email (and WhatsApp when the business offers it) if a slot opens up.
+- View and leave waitlist entries from your customer account.
+
+1.5 Branded Booking Experience
+- Each business can show its own name, logo, and colors so booking feels familiar and trustworthy.
+- Visit a dedicated booking home page for that business, then start scheduling in one click.
+- Book via a direct link for a specific service and staff member when shared by the business.
+
+1.6 Your Customer Account
+- Sign in to see upcoming and past appointments in a list or calendar view.
+- Search and filter bookings by status, time period, and location.
+- Update your profile, password, and reminder preferences in one settings area.
+
+
+Section 2: Core User Features
+
+Booking & scheduling
+- Full booking wizard: pick location (when offered), service, provider, date, and time slot.
+- Quick event-style booking link when service and provider are already chosen for you.
+- Direct booking URLs for a specific provider and service.
+- Short secure booking links that open a ready-to-complete session (no retyping details).
+- Embeddable booking pages that fit inside a business website with a compact layout.
+- View service descriptions, duration, and pricing before you confirm.
+- Optional notes and custom questions (intake forms) during booking—text, choices, checkboxes, and more.
+- Choose your own time zone so dates and times display correctly wherever you are.
+- Book within the business’s allowed advance window (how far ahead you can schedule).
+- Request bookings that need business approval; you are told when the request is received and when it is confirmed.
+- Optional online payment at checkout for paid services (when enabled by the business).
+- Confirmation screen with a link to manage the appointment and sign in to see “My appointments.”
+
+Appointment management (no login required)
+- Secure manage page using your unique booking link.
+- View service, provider, location, date, time, and status.
+- Reschedule when the business allows (with visibility of how many changes remain).
+- Cancel within the business’s cancellation policy window.
+- Download calendar invite (.ics) or open in Google Calendar.
+- See cancellation and reschedule policies on the manage page.
+- Update reminder preferences for that appointment when offered.
+
+Waitlist
+- Prompt to join the waitlist when a day has no available times.
+- Join with your preferred date and optional preferred time.
+- Email confirmation when you join; WhatsApp confirmation when phone and business setup allow.
+- Notification when a matching slot may be available.
+- Manage waitlist from your signed-in account (view entries and leave the waitlist).
+
+Reminders & notifications
+- Choose reminder times when booking (e.g., day before, hours before).
+- Set default reminder preferences in account settings.
+- Turn reminders on or off and pick which reminder intervals you want.
+- Email confirmations for booking, changes, and cancellations.
+- WhatsApp messages when the business has messaging enabled.
+- In-account notification center summarizing upcoming and recent appointment activity.
+
+Reviews & feedback
+- Leave a star rating and optional written review after a completed visit (from your manage link).
+- See confirmation that your feedback was received.
+
+Customer account & sign-in
+- Register with email and password for a business you book with.
+- Sign in with Google for faster account creation and login.
+- Email verification for new accounts.
+- Forgot password and reset password flows.
+- Customer sign-in page scoped to the business you are booking with.
+- Dashboard with appointment stats (total, upcoming, completed, cancelled).
+- List view with search, status filter, upcoming/past filter, location filter, and sort options.
+- Calendar view of your appointments.
+- Quick links to manage each booking or book again.
+- Cancel upcoming appointments from your account (where allowed).
+- Profile settings: name, email display, password change.
+- Reminder preference management in settings.
+- AI assistant in the account area for help with bookings and questions.
+
+Business discovery & access
+- Dedicated landing page per business (e.g., your-clinic.slotwise.com style paths).
+- “Book appointment,” “Customer sign in,” and “Create account” actions on the business home page.
+- Marketing site overview of Slotwise for visitors learning about the product (not required to book).
+- Terms of service and privacy policy pages.
+- Dark mode support for comfortable viewing at any time of day.
+- Mobile-friendly booking and account screens.
+
+Partner & embedded experiences (customer-facing only)
+- Streamlined booking when arriving from a partner or CRM handoff (details prefilled where provided).
+- Minimal booking chrome for embedded flows on partner sites.
+- Return to partner site after booking when a return link is provided.
+
+
+Section 3: Customer Value Summary
+
+Slotwise removes the friction of scheduling by putting real availability in front of you, confirming instantly, and giving you control after you book. Whether you need a one-time visit or ongoing appointments, you spend less time on hold, fewer emails back and forth, and more confidence that your time is reserved.
+
+Key benefits for customers:
+- Book 24/7 without waiting for office hours or a callback.
+- See accurate open times and complete booking in a few clear steps.
+- Get email and optional WhatsApp confirmations and reminders so visits are not forgotten.
+- Reschedule or cancel yourself when policies allow—no need to chase staff.
+- Add appointments to your personal calendar in one click.
+- Join a waitlist instead of checking back manually when days are full.
+- Keep all bookings organized in one account with list and calendar views.
+- Answer business-specific questions up front so your visit is prepared.
+- Share feedback after completed visits to help improve service.
+- Use an AI assistant when you are unsure which service or time to pick.

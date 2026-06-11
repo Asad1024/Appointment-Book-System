@@ -1,0 +1,21 @@
+{
+  "name": "@pkg/scheduling-core",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test dist/**/*.test.js || node --import tsx --test src/**/*.test.ts",
+    "test:run": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@pkg/shared-types": "file:../shared-types",
+    "luxon": "^3.4.4"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.4.2",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.5"
+  }
+}

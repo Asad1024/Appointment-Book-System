@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "**/*spec.ts",
+    "prisma/seed.ts",
+    "prisma/migrations"
+  ],
+  "compilerOptions": {
+    "declaration": false,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+  }
+}

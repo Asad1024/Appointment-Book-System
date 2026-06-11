@@ -1,0 +1,548 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id                    String    @id @default(uuid())
+  name                  String
+  slug                  String    @unique
+  logoUrl               String?   @map("logo_url")
+  primaryColor          String?   @default("#4f46e5") @map("primary_color")
+  bookingCurrency       String    @default("aed") @map("booking_currency")
+  allowedEmbedOrigins   String?   @map("allowed_embed_origins")
+  webhookUrl            String?   @map("webhook_url")
+  webhookSecret         String?   @map("webhook_secret")
+  webhookEnabled        Boolean   @default(true) @map("webhook_enabled")
+  subscriptionPlan      String    @default("free") @map("subscription_plan")
+  subscriptionStatus    String    @default("inactive") @map("subscription_status")
+  subscriptionExpiresAt DateTime? @map("subscription_expires_at")
+  paymentMethodLast4    String?   @map("payment_method_last4")
+  paymentMethodBrand    String?   @map("payment_method_brand")
+  stripeCustomerId      String?   @unique @map("stripe_customer_id")
+  stripeSubscriptionId  String?   @unique @map("stripe_subscription_id")
+  isActive              Boolean   @default(true) @map("is_active")
+  onboardingChecklist   String?   @map("onboarding_checklist")
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  locations                Location[]
+  users                    User[]
+  customers                Customer[]
+  teamInvites              TeamInvite[]
+  apiKeys                  ApiKey[]
+  outboundWebhooks         OutboundWebhook[]
+  partnerBookingSessions   PartnerBookingSession[]
+  notificationTemplates    NotificationTemplate[]
+  billingHistoryEntries    BillingHistory[]
+  customerAssistantThreads CustomerAssistantThread[]
+
+  @@map("organizations")
+}
+
+model BillingHistory {
+  id               String   @id @default(uuid())
+  organizationId   String   @map("organization_id")
+  eventType        String   @map("event_type")
+  status           String
+  number           String?
+  currency         String   @default("AED")
+  amountPaidMinor  Int      @default(0) @map("amount_paid_minor")
+  amountDueMinor   Int      @default(0) @map("amount_due_minor")
+  externalId       String?  @map("external_id")
+  hostedInvoiceUrl String?  @map("hosted_invoice_url") @db.Text
+  invoicePdfUrl    String?  @map("invoice_pdf_url") @db.Text
+  receiptUrl       String?  @map("receipt_url") @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, eventType, externalId], map: "bh_org_event_external_uk")
+  @@index([organizationId, createdAt])
+  @@map("billing_history")
+}
+
+model OutboundWebhook {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  url            String
+  secret         String
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, isActive])
+  @@map("outbound_webhooks")
+}
+
+// Short-lived partner booking links (Leads Reach, etc.) — no PII in URL.
+model PartnerBookingSession {
+  id             String    @id @default(uuid())
+  token          String    @unique
+  organizationId String    @map("organization_id")
+  expiresAt      DateTime  @map("expires_at")
+  usedAt         DateTime? @map("used_at")
+  ref            String?
+  returnUrl      String?   @map("return_url")
+  source         String    @default("partner")
+  customerName   String?   @map("customer_name")
+  customerEmail  String?   @map("customer_email")
+  customerPhone  String?   @map("customer_phone")
+  serviceId      String?   @map("service_id")
+  providerId     String?   @map("provider_id")
+  leadLabel      String?   @map("lead_label")
+  campaign       String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([organizationId, expiresAt])
+  @@map("partner_booking_sessions")
+}
+
+model ApiKey {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  name           String
+  keyPrefix      String    @map("key_prefix")
+  keyHash        String    @map("key_hash")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdById    String?   @map("created_by_id")
+  lastUsedAt     DateTime? @map("last_used_at")
+  revokedAt      DateTime? @map("revoked_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, revokedAt])
+  @@index([keyPrefix])
+  @@map("api_keys")
+}
+
+model Location {
+  id                     String   @id @default(uuid())
+  organizationId         String   @map("organization_id")
+  name                   String
+  timezone               String   @default("UTC")
+  address                String?
+  phone                  String?
+  cancellationCutoffH    Int      @default(24) @map("cancellation_cutoff_h")
+  leadTimeMinutes        Int      @default(120) @map("lead_time_minutes")
+  bookingWindowDays      Int      @default(60) @map("booking_window_days")
+  reminderOffsetsMinutes String   @default("[1440,120,60,30]") @map("reminder_offsets_minutes")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  providers    Provider[]
+  services     Service[]
+  appointments Appointment[]
+  waitlist     Waitlist[]
+
+  @@map("locations")
+}
+
+enum IntakeFieldType {
+  text
+  textarea
+  select
+  checkbox
+  number
+}
+
+model User {
+  id                      String    @id @default(uuid())
+  organizationId          String    @map("organization_id")
+  email                   String    @unique
+  passwordHash            String    @map("password_hash")
+  name                    String
+  avatarUrl               String?   @map("avatar_url") @db.VarChar(1024)
+  role                    String    @default("customer")
+  providerId              String?   @unique @map("provider_id")
+  emailVerified           Boolean   @default(false) @map("email_verified")
+  emailVerifyToken        String?   @unique @map("email_verify_token")
+  emailVerifyTokenExpires DateTime? @map("email_verify_token_expires")
+  passwordResetToken      String?   @unique @map("password_reset_token")
+  passwordResetExpires    DateTime? @map("password_reset_expires")
+  isActive                Boolean   @default(true) @map("is_active")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  organization             Organization              @relation(fields: [organizationId], references: [id])
+  provider                 Provider?                 @relation(fields: [providerId], references: [id])
+  customers                Customer[]
+  invitesSent              TeamInvite[]              @relation("InvitedBy")
+  authoredNotes            AppointmentNote[]         @relation("NoteAuthor")
+  customerAssistantThreads CustomerAssistantThread[]
+
+  @@map("users")
+}
+
+model TeamInvite {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  email          String
+  role           String
+  providerId     String?   @map("provider_id")
+  token          String    @unique
+  invitedById    String    @map("invited_by_id")
+  expiresAt      DateTime  @map("expires_at")
+  acceptedAt     DateTime? @map("accepted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("InvitedBy", fields: [invitedById], references: [id])
+
+  @@index([organizationId, email])
+  @@map("team_invites")
+}
+
+model Provider {
+  id             String    @id @default(uuid())
+  organizationId String    @map("organization_id")
+  locationId     String    @map("location_id")
+  slug           String?   @map("slug")
+  name           String
+  email          String?
+  phone          String?
+  bio            String?
+  isActive       Boolean   @default(true) @map("is_active")
+  archivedAt     DateTime? @map("archived_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  location           Location                    @relation(fields: [locationId], references: [id])
+  user               User?
+  availabilityRules  AvailabilityRule[]
+  blockedTimes       BlockedTime[]
+  serviceProviders   ServiceProvider[]
+  appointments       Appointment[]
+  waitlist           Waitlist[]
+  calendarConnection ProviderCalendarConnection?
+
+  @@unique([organizationId, slug])
+  @@index([locationId, archivedAt])
+  @@map("providers")
+}
+
+model ProviderCalendarConnection {
+  id           String   @id @default(uuid())
+  providerId   String   @unique @map("provider_id")
+  calendarType String   @default("google") @map("calendar_type")
+  accessToken  String   @map("access_token") @db.Text
+  refreshToken String   @map("refresh_token") @db.Text
+  expiresAt    DateTime @map("expires_at")
+  calendarId   String   @default("primary") @map("calendar_id")
+  connectedAt  DateTime @default(now()) @map("connected_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@map("provider_calendar_connections")
+}
+
+model Service {
+  id                  String    @id @default(uuid())
+  organizationId      String    @map("organization_id")
+  locationId          String    @map("location_id")
+  slug                String?   @map("slug")
+  productKey          String?   @map("product_key")
+  name                String
+  description         String?
+  durationMinutes     Int       @map("duration_minutes")
+  bufferBeforeMinutes Int       @default(0) @map("buffer_before_minutes")
+  bufferAfterMinutes  Int       @default(10) @map("buffer_after_minutes")
+  priceCents          Int?      @map("price_cents")
+  requiresApproval    Boolean   @default(false) @map("requires_approval")
+  isDefault           Boolean   @default(false) @map("is_default")
+  isActive            Boolean   @default(true) @map("is_active")
+  archivedAt          DateTime? @map("archived_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  location         Location          @relation(fields: [locationId], references: [id])
+  serviceProviders ServiceProvider[]
+  appointments     Appointment[]
+  waitlist         Waitlist[]
+  intakeFields     IntakeField[]
+
+  @@unique([organizationId, slug])
+  @@index([locationId, archivedAt])
+  @@map("services")
+}
+
+model IntakeField {
+  id        String          @id @default(cuid())
+  serviceId String          @map("service_id")
+  service   Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  label     String
+  helpText  String?         @map("help_text")
+  type      IntakeFieldType
+  options   Json?
+  required  Boolean         @default(false)
+  order     Int             @default(0)
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  responses IntakeResponse[]
+
+  @@index([serviceId, order])
+  @@map("intake_fields")
+}
+
+model IntakeResponse {
+  id            String      @id @default(cuid())
+  appointmentId String      @map("appointment_id")
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  fieldId       String      @map("field_id")
+  field         IntakeField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  value         String      @db.Text
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  @@index([appointmentId])
+  @@map("intake_responses")
+}
+
+model ServiceProvider {
+  serviceId  String @map("service_id")
+  providerId String @map("provider_id")
+
+  service  Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, providerId])
+  @@map("service_providers")
+}
+
+model AvailabilityRule {
+  id         String @id @default(uuid())
+  providerId String @map("provider_id")
+  dayOfWeek  Int    @map("day_of_week")
+  startTime  String @map("start_time")
+  endTime    String @map("end_time")
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@map("availability_rules")
+}
+
+model BlockedTime {
+  id         String   @id @default(uuid())
+  providerId String   @map("provider_id")
+  startUtc   DateTime @map("start_utc")
+  endUtc     DateTime @map("end_utc")
+  reason     String?
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@map("blocked_times")
+}
+
+model Customer {
+  id                     String   @id @default(uuid())
+  organizationId         String   @map("organization_id")
+  userId                 String?  @map("user_id")
+  name                   String
+  email                  String
+  phone                  String?
+  remindersEnabled       Boolean  @default(true) @map("reminders_enabled")
+  reminderOffsetsMinutes String?  @map("reminder_offsets_minutes")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?         @relation(fields: [userId], references: [id])
+  appointments Appointment[]
+  waitlist     Waitlist[]
+
+  @@unique([organizationId, email])
+  @@unique([organizationId, userId])
+  @@index([email])
+  @@index([userId])
+  @@map("customers")
+}
+
+model CustomerAssistantThread {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  userId         String   @map("user_id")
+  page           String
+  messages       String   @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, page], map: "cat_org_user_page_uk")
+  @@index([userId, updatedAt])
+  @@map("customer_assistant_threads")
+}
+
+model Appointment {
+  id                     String    @id @default(uuid())
+  organizationId         String    @map("organization_id")
+  locationId             String    @map("location_id")
+  serviceId              String    @map("service_id")
+  providerId             String    @map("provider_id")
+  customerId             String    @map("customer_id")
+  startUtc               DateTime  @map("start_utc")
+  endUtc                 DateTime  @map("end_utc")
+  timezone               String
+  customerTimezone       String?   @map("customer_timezone")
+  status                 String    @default("confirmed")
+  statusUpdatedAt        DateTime? @map("status_updated_at")
+  source                 String    @default("web")
+  product                String?
+  campaign               String?
+  returnUrl              String?   @map("return_url")
+  metadata               String?
+  idempotencyKey         String?   @unique @map("idempotency_key")
+  manageToken            String    @unique @map("manage_token")
+  rescheduleCount        Int       @default(0) @map("reschedule_count")
+  reminderOffsetsMinutes String    @default("[]") @map("reminder_offsets_minutes")
+  remindersSentMinutes   String    @default("[]") @map("reminders_sent_minutes")
+  notes                  String?
+  paymentStatus          String    @default("not_required") @map("payment_status")
+  stripePaymentIntentId  String?   @unique @map("stripe_payment_intent_id")
+  amountPaidCents        Int?      @map("amount_paid_cents")
+  googleCalendarEventId  String?   @map("google_calendar_event_id")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  location         Location           @relation(fields: [locationId], references: [id])
+  service          Service            @relation(fields: [serviceId], references: [id])
+  provider         Provider           @relation(fields: [providerId], references: [id])
+  customer         Customer           @relation(fields: [customerId], references: [id])
+  events           AppointmentEvent[]
+  notifications    NotificationLog[]
+  review           Review?
+  intakeResponses  IntakeResponse[]
+  appointmentNotes AppointmentNote[]
+
+  @@index([providerId, startUtc])
+  @@index([locationId, startUtc])
+  @@index([organizationId, status])
+  @@map("appointments")
+}
+
+model AppointmentEvent {
+  id            String   @id @default(uuid())
+  appointmentId String   @map("appointment_id")
+  action        String
+  actorUserId   String?  @map("actor_user_id")
+  actorEmail    String?  @map("actor_email")
+  payload       String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@map("appointment_events")
+}
+
+model NotificationLog {
+  id            String    @id @default(uuid())
+  appointmentId String    @map("appointment_id")
+  type          String
+  status        String    @default("pending")
+  recipient     String
+  errorMessage  String?   @map("error_message")
+  sentAt        DateTime? @map("sent_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@map("notification_logs")
+}
+
+model NotificationTemplate {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  channel        String
+  audience       String
+  eventType      String   @map("event_type")
+  name           String
+  subject        String?
+  body           String   @db.Text
+  isDefault      Boolean  @default(false) @map("is_default")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, channel, audience, eventType], map: "nt_org_channel_audience_event_idx")
+  @@index([organizationId, isDefault], map: "nt_org_is_default_idx")
+  @@map("notification_templates")
+}
+
+model Waitlist {
+  id                String    @id @default(uuid())
+  serviceId         String    @map("service_id")
+  locationId        String?   @map("location_id")
+  providerId        String?   @map("provider_id")
+  preferredDate     String    @map("preferred_date")
+  preferredStartUtc DateTime? @map("preferred_start_utc")
+  customerEmail     String    @map("customer_email")
+  customerName      String    @map("customer_name")
+  customerId        String?   @map("customer_id")
+  status            String    @default("active")
+  notifiedAt        DateTime? @map("notified_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  service  Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  location Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  provider Provider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([serviceId, preferredDate, status])
+  @@index([customerEmail, status])
+  @@map("waitlist")
+}
+
+model IdempotencyRecord {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  response  String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("idempotency_records")
+}
+
+model Review {
+  id            String   @id @default(uuid())
+  appointmentId String   @unique @map("appointment_id")
+  rating        Int
+  comment       String?  @db.Text
+  customerName  String   @map("customer_name")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId])
+  @@map("reviews")
+}
+
+model AppointmentNote {
+  id            String      @id @default(cuid())
+  appointmentId String      @map("appointment_id")
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  authorId      String      @map("author_id")
+  author        User        @relation("NoteAuthor", fields: [authorId], references: [id])
+  content       String      @db.Text
+  editedAt      DateTime?   @map("edited_at")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  @@index([appointmentId, createdAt])
+  @@map("appointment_notes")
+}

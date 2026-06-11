@@ -1,0 +1,258 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --surface-base: #ffffff;
+    --surface-subtle: #f8fafc;
+    --surface-muted: #f1f5f9;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 239 84% 67%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --surface-base: #0f172a;
+    --surface-subtle: #020617;
+    --surface-muted: #1e293b;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 239 84% 67%;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-surface-subtle font-sans text-text-primary antialiased;
+  }
+}
+
+@layer components {
+  .card-base {
+    @apply rounded-xl border border-slate-100 bg-white shadow-card dark:border-slate-800 dark:bg-slate-900;
+  }
+
+  .input-field {
+    @apply h-11 w-full rounded-lg border border-slate-200 bg-white px-4 text-sm text-text-primary transition-all placeholder:text-text-muted focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-900;
+  }
+
+  /* react-international-phone */
+  .phone-input-wrapper {
+    @apply relative z-0 w-full rounded-lg border border-slate-200 bg-white transition-all focus-within:z-50 focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20 dark:border-slate-700 dark:bg-slate-900;
+    --react-international-phone-height: 2.75rem;
+    --react-international-phone-border-radius: 0.5rem;
+    --react-international-phone-border-color: transparent;
+    --react-international-phone-background-color: transparent;
+    --react-international-phone-text-color: inherit;
+    --react-international-phone-font-size: 0.875rem;
+    --react-international-phone-country-selector-border-color: transparent;
+    --react-international-phone-country-selector-background-color: transparent;
+    --react-international-phone-country-selector-background-color-hover: rgb(248 250 252);
+    --react-international-phone-country-selector-arrow-color: #64748b;
+    --react-international-phone-dropdown-item-background-color: #ffffff;
+    --react-international-phone-selected-dropdown-item-background-color: rgb(248 250 252);
+    --react-international-phone-dropdown-shadow: 0 10px 40px rgb(15 23 42 / 0.15);
+  }
+
+  .phone-input-wrapper--invalid {
+    @apply border-red-500 focus-within:border-red-500 focus-within:ring-red-500/20;
+  }
+
+  .phone-input-wrapper--disabled {
+    @apply opacity-60;
+  }
+
+  .phone-input-wrapper .phone-input-root {
+    @apply w-full;
+  }
+
+  .phone-input-wrapper .react-international-phone-input-container {
+    @apply w-full;
+  }
+
+  .phone-input-wrapper .phone-input-country-btn,
+  .phone-input-wrapper .react-international-phone-country-selector-button {
+    @apply shrink-0 cursor-pointer border-0 bg-transparent pl-3 pr-1 shadow-none;
+    pointer-events: auto;
+    border-radius: 0.5rem 0 0 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .phone-input-wrapper .react-international-phone-country-selector-button__flag-emoji {
+    margin: 0 0.25rem 0 0;
+  }
+
+  .phone-input-wrapper .react-international-phone-input,
+  .phone-input-wrapper .phone-input-field {
+    @apply min-w-0 flex-1 border-0 bg-transparent pr-3 text-sm text-text-primary shadow-none placeholder:text-text-muted focus:outline-none focus:ring-0 dark:bg-transparent;
+    border-radius: 0 0.5rem 0.5rem 0 !important;
+    border-top-left-radius: 0 !important;
+    border-bottom-left-radius: 0 !important;
+  }
+
+  .phone-input-wrapper .react-international-phone-country-selector {
+    @apply relative;
+  }
+
+  .phone-input-wrapper:has(
+      .react-international-phone-country-selector-button__dropdown-arrow--active
+    ),
+  .phone-input-wrapper:focus-within {
+    @apply z-50;
+  }
+
+  .phone-input-wrapper .phone-input-country-dropdown,
+  .phone-input-wrapper .react-international-phone-country-selector-dropdown {
+    z-index: 9999 !important;
+    pointer-events: auto;
+    @apply border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900;
+    background-color: #ffffff !important;
+  }
+
+  .phone-input-wrapper .react-international-phone-country-selector-dropdown__list-item {
+    pointer-events: auto;
+    cursor: pointer;
+  }
+
+  .dark .phone-input-wrapper {
+    --react-international-phone-country-selector-background-color-hover: rgb(30 41 59);
+    --react-international-phone-dropdown-item-background-color: rgb(15 23 42);
+    --react-international-phone-selected-dropdown-item-background-color: rgb(30 41 59);
+  }
+
+  .dark .phone-input-wrapper .phone-input-country-dropdown,
+  .dark .phone-input-wrapper .react-international-phone-country-selector-dropdown {
+    background-color: rgb(15 23 42) !important;
+  }
+
+  .section-label {
+    @apply text-xs font-medium uppercase tracking-wider text-text-muted;
+  }
+
+  .status-confirmed {
+    @apply rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700;
+  }
+  .status-pending {
+    @apply rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700;
+  }
+  .status-cancelled {
+    @apply rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-600;
+  }
+  .status-checked_in {
+    @apply rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700;
+  }
+  .status-completed {
+    @apply rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600;
+  }
+  .status-no_show {
+    @apply rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-medium text-rose-700;
+  }
+}
+
+/* Partner / filled booking — Cal-style day picker accent */
+.booking-day-picker--split {
+  --rdp-day-height: 3rem;
+  --rdp-day-width: 3rem;
+  --rdp-day_button-height: 3rem;
+  --rdp-day_button-width: 3rem;
+  width: 100%;
+  margin: 0;
+}
+.booking-day-picker--split .rdp-months {
+  width: 100%;
+  max-width: none;
+}
+.booking-day-picker--split .rdp-month {
+  width: 100%;
+}
+.booking-day-picker--split .rdp-month_grid {
+  width: 100%;
+  table-layout: fixed;
+}
+.booking-day-picker--split .rdp-day {
+  width: 14.285%;
+  padding: 2px;
+  text-align: center;
+  vertical-align: middle;
+}
+.booking-day-picker--split .rdp-day_button {
+  width: 2.75rem;
+  height: 2.75rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  max-width: 2.75rem;
+  margin-inline: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  aspect-ratio: 1;
+  padding: 0;
+}
+.booking-day-picker .rdp-selected .rdp-day_button {
+  background-color: var(--booking-accent, #4f46e5) !important;
+  color: #fff !important;
+  border-color: var(--booking-accent, #4f46e5) !important;
+  border-radius: 9999px;
+}
+.booking-day-picker .rdp-day_button:hover:not([disabled]) {
+  background-color: rgb(241 245 249);
+}
+.booking-day-picker .rdp-selected .rdp-day_button:hover {
+  filter: brightness(0.95);
+}
+
+/* Time slot list — scrollable but scrollbar hidden */
+.booking-slot-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.booking-slot-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
